@@ -45,7 +45,7 @@ describe("workflow runtime", () => {
     const h = harness(); let release!: () => void; const gate = new Promise<void>((r) => { release = r }); let prompted = 0
     const sessions = { ...h.adapter, create: async () => { await gate; return { sessionID: "late" } }, promptAsync: async () => { prompted++ } }
     const runtime = createWorkflowRuntime({ state: h.state, sessions: sessions as any, registerToolHook: () => {}, agent: { name: RESERVED_AGENT, definition: { permission: { bash: "deny" }, tools: ["workflow_command"] } } })
-    const { runId } = await runtime.launch(plan([step("a")]), approval); await runtime.cancel(runId); release(); await new Promise((r) => setTimeout(r, 10)); expect(prompted).toBe(0); expect((await runtime.status(runId)).steps[0].state).toBe("cancelled")
+    const { runId } = await runtime.launch(plan([step("a")]), approval); await runtime.cancel(runId); release(); await new Promise((r) => setTimeout(r, 10)); expect(prompted).toBe(0); expect((await runtime.status(runId)).steps[0].state).toBe("cancelled"); expect(runtime.binding("late")).toBeUndefined()
   })
   test("hook callback prevents built-in execution", async () => {
     const h = harness(); let hook: any; let called = false

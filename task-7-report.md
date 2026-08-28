@@ -31,3 +31,6 @@ Final verification: 4 runtime tests passed and TypeScript typecheck passed.
 Final behavior-first batch adds cancellation-during-create, hook execution
 blocking, and shared approval-broker replay tests. Seven focused runtime tests
 now pass; typecheck passes.
+
+The final cancellation assertion verifies that a late-created session leaves no
+runtime binding after cancellation.
