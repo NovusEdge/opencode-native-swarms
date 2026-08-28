@@ -1,0 +1,21 @@
+# Task 6 report: workflow planning and repository state
+
+Implemented deterministic workflow planning and lifecycle/state persistence.
+
+`planner.ts` validates dependencies, cycles, declared output references and
+types, workspace modes and repository identity, policy capabilities/scopes,
+resource ceilings, and writer overlap/handoff rules. Kahn planning uses stable
+step-ID ordering and returns deeply frozen plans. Workflow and step transition
+helpers reject every illegal transition.
+
+`state.ts` provides repository-keyed XDG storage through injected environment
+and filesystem adapters. Writes are lock-serialized, sanitized, temporary and
+atomically replaced where the adapter supports rename; fsync is attempted when
+available. Missing/incomplete records remain recoverable from the last complete
+record, and event/list APIs are exposed for runtime resume/stale hooks.
+
+Focused verification:
+
+`bun test src/workflow/planner.test.ts src/workflow/state.test.ts && bun run typecheck`
+
+Result: 5 tests passed, 0 failed; TypeScript check passed.
