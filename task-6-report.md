@@ -38,6 +38,10 @@ workspace evidence matching, shared immutable definition/step graph, and
 lock-serialized persisted step transitions and resumability checks with drift
 guards.
 
+The final invariant pass adds source workflow-hash and workspace containment
+checks, strict validation before every persistence path, expanded drift facts
+for revalidation, and terminal-state safeguards for stale transitions.
+
 Final hardening adds lock-coherent stale persistence and resume gating,
 identity/revision/policy guards for step transitions, lifecycle evidence
 events, explicit corrupt-copy errors, and safe path validation that supports
