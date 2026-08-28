@@ -33,6 +33,7 @@
     "@opencode-ai/plugin": ">=1.18.25 <2"
   },
   "dependencies": {
+    "picomatch": "4.0.2",
     "zod": "4.1.8"
   }
 }
