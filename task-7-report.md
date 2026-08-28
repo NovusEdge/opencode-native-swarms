@@ -23,3 +23,7 @@ Final review-fix pass adds cross-runtime atomic state updates, cancellation
 checks around native session creation/prompting, strict bound-session event
 correlation, consumed approval recording, output byte caps, lost-session
 classification, and optional host hook registration.
+
+The follow-up used behavior-first tests: host hook absence and approval replay
+were confirmed failing before their fixes, then the focused suite was rerun.
+Final verification: 4 runtime tests passed and TypeScript typecheck passed.

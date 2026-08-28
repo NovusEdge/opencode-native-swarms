@@ -151,16 +151,20 @@ export function createWorkflowRuntime(options: RuntimeOptions): WorkflowRuntime 
       await update(runId, (r) => ({ ...r, steps: r.steps.map((s) => s.id === step.id ? { ...s, state: "succeeded", outputs, finishedAt: iso(now) } : s), updatedAt: iso(now) }))
       const after = await get(runId)
       if (after.steps.every((s) => s.state === "succeeded" || s.state === "skipped") && !terminal(after.state)) await update(runId, (r) => ({ ...r, state: "succeeded", updatedAt: iso(now) }))
-    } catch (e) { await failStep(runId, step.id, errorText(e)) }
+    } catch (e) { if (!cancelled.has(runId)) await failStep(runId, step.id, errorText(e)) }
     finally { set.delete(session.sessionID); set.delete(reservation); bindings.delete(session.sessionID); wake(runId); await schedule(runId) }
   }
   const launch = async (plan: WorkflowPlan, approval: LaunchApproval) => {
+    if (!options.registerToolHook) throw new Error("Host tool enforcement unavailable")
     if (!agentMatches(options.agent) || options.agent?.name !== RESERVED_AGENT) throw new Error("Reserved workflow agent is unavailable or mismatched")
     if (approval.workflowHash !== plan.workflowHash || approval.policyHash !== plan.policyHash || !approval.singleUse || consumedApprovals.has(approval.token)) throw new Error("Launch approval does not match plan")
+    const tokenHash = createHash("sha256").update(approval.token).digest("hex")
+    const listed = typeof (options.state as any).listRuns === "function" ? await (options.state as any).listRuns() : []
+    for (const prior of listed) if ((prior as any).approval?.tokenHash === tokenHash) throw new Error("Launch approval already consumed")
     consumedApprovals.add(approval.token)
     const runId = randomUUID(), timestamp = iso(now)
     const record: RunRecord = { runId, workflowName: plan.definition.name, revision: 1, workflowHash: plan.workflowHash, state: "running", createdAt: timestamp, updatedAt: timestamp, steps: plan.steps.map((s) => ({ id: s.id, state: "queued" })), policyHash: plan.policyHash }
-    await options.state.write(runId, { ...record, repository: options.repositoryId && options.repositoryRoot ? { id: options.repositoryId, directory: options.repositoryRoot } : undefined, evidence: { ownership: "opencode-native-swarms", sessionHash: createHash("sha256").update(runId).digest("hex") }, approval: { tokenHash: createHash("sha256").update(approval.token).digest("hex"), consumed: true } } as any); plans.set(runId, plan); active.set(runId, new Set()); void schedule(runId).catch(async (e) => { await update(runId, (r) => ({ ...r, state: "failed", updatedAt: iso(now), failure: errorText(e) } as any)) }); return { runId }
+    await options.state.write(runId, { ...record, repository: options.repositoryId && options.repositoryRoot ? { id: options.repositoryId, directory: options.repositoryRoot } : undefined, evidence: { ownership: "opencode-native-swarms", sessionHash: createHash("sha256").update(runId).digest("hex") }, approval: { tokenHash, consumed: true } } as any); plans.set(runId, plan); active.set(runId, new Set()); void schedule(runId).catch(async (e) => { await update(runId, (r) => ({ ...r, state: "failed", updatedAt: iso(now), failure: errorText(e) } as any)) }); return { runId }
   }
   const status = get
   const wait = async (runId: string, timeoutMs: number) => { const initial = await get(runId); if (terminal(initial.state)) return initial; let unsubscribe: (() => void) | undefined; const result = await new Promise<RunRecord>((resolve) => { let done = false; const finish = async () => { if (!done) { done = true; clearTimeout(timer); signals.get(runId)?.delete(finish); unsubscribe?.(); resolve(await get(runId)) } }; const timer = setTimeout(finish, Math.max(0, timeoutMs)); const list = signals.get(runId) ?? new Set(); list.add(finish); signals.set(runId, list); if (options.event?.subscribe) { const handler = (event: any) => { const sid = event?.sessionID ?? event?.session?.id; if (sid && [...bindings.values()].some((b) => b.runId === runId && b.sessionID === sid)) void finish() }; const value = options.event.subscribe(handler); if (typeof value === "function") unsubscribe = value; else void value.then((fn) => { unsubscribe = fn }) } }); return terminal(result.state) ? result : { ...result, timedOut: true } }
