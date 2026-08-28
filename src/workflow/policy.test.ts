@@ -20,6 +20,7 @@ describe("workflow policy compiler", () => {
     })
     expect(decidePath(policy, "read", "src/lib/a.ts").allowed).toBe(true)
     expect(decidePath(policy, "read", "test/a.ts").allowed).toBe(false)
+    expect(decidePath(policy, "read", "SRC/lib/a.ts").allowed).toBe(false)
   })
 
   test("explicit deny takes precedence and identifies its layer and rule", () => {
@@ -56,12 +57,15 @@ describe("workflow policy compiler", () => {
       ["launch.writePaths[0]", { ...allow("repo.read", ["**"]), writePaths: ["/absolute"] }],
       ["workflow.readPaths[0]", { ...allow("repo.read", ["**"]), readPaths: ["a\\b"] }],
       ["step.writePaths[0]", { ...allow("repo.read", ["**"]), writePaths: ["../outside"] }],
+      ["installation.readPaths[0]", { ...allow("repo.read", ["**"]), readPaths: ["a\0b"] }],
+      ["launch.readPaths[0]", { ...allow("repo.read", ["**"]), readPaths: ["C:/repo/**"] }],
     ]
     for (const [provenance, layer] of malformed) {
       const policy = { ...layers(), [provenance.split(".")[0]]: layer }
       expect(() => compilePolicy(policy as never)).toThrow(`Invalid policy path pattern (${provenance})`)
     }
     expect(() => compilePolicy({ ...layers(), protectedPaths: [""] })).toThrow("Invalid policy path pattern (protectedPaths[0])")
+    expect(() => compilePolicy({ ...layers(), installation: { ...layers().installation, protectedPaths: ["installation\\bad"] } })).toThrow("Invalid policy path pattern (installation.protectedPaths[0])")
   })
 
   test("hash is stable across equivalent ordering", () => {

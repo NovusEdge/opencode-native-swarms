@@ -48,12 +48,23 @@ export function compilePolicy(input: PolicyLayers): CompiledPolicy {
       }
     }
   }
-  const configuredProtectedPaths = [
-    ...(input.protectedPaths ?? []),
-    ...layerNames.flatMap((name) => "protectedPaths" in input[name] ? input[name].protectedPaths ?? [] : []),
-  ]
-  for (let i = 0; i < configuredProtectedPaths.length; i++) {
-    if (!validPath(configuredProtectedPaths[i])) throw new Error(`Invalid policy path pattern (protectedPaths[${i}])`)
+  const configuredProtectedPaths: string[] = []
+  const protectedSources: Array<{ value: string; label: string }> = []
+  for (let i = 0; i < (input.protectedPaths ?? []).length; i++) {
+    const value = input.protectedPaths![i]
+    configuredProtectedPaths.push(value)
+    protectedSources.push({ value, label: `protectedPaths[${i}]` })
+  }
+  for (const name of layerNames) {
+    if (!("protectedPaths" in input[name])) continue
+    const paths = input[name].protectedPaths ?? []
+    for (let i = 0; i < paths.length; i++) {
+      configuredProtectedPaths.push(paths[i])
+      protectedSources.push({ value: paths[i], label: `${name}.protectedPaths[${i}]` })
+    }
+  }
+  for (const sourcePath of protectedSources) {
+    if (!validPath(sourcePath.value)) throw new Error(`Invalid policy path pattern (${sourcePath.label})`)
   }
   const capabilities = source.reduce((set, layer) => {
     const allowed = new Set(layer.capabilities)
