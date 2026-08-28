@@ -50,6 +50,20 @@ describe("workflow policy compiler", () => {
     }
   })
 
+  test("rejects malformed scope patterns during compilation with provenance", () => {
+    const malformed: Array<[string, PermissionPolicy]> = [
+      ["installation.readPaths[0]", { ...allow("repo.read", ["  "]), readPaths: ["  "] }],
+      ["launch.writePaths[0]", { ...allow("repo.read", ["**"]), writePaths: ["/absolute"] }],
+      ["workflow.readPaths[0]", { ...allow("repo.read", ["**"]), readPaths: ["a\\b"] }],
+      ["step.writePaths[0]", { ...allow("repo.read", ["**"]), writePaths: ["../outside"] }],
+    ]
+    for (const [provenance, layer] of malformed) {
+      const policy = { ...layers(), [provenance.split(".")[0]]: layer }
+      expect(() => compilePolicy(policy as never)).toThrow(`Invalid policy path pattern (${provenance})`)
+    }
+    expect(() => compilePolicy({ ...layers(), protectedPaths: [""] })).toThrow("Invalid policy path pattern (protectedPaths[0])")
+  })
+
   test("hash is stable across equivalent ordering", () => {
     const a = compilePolicy(layers({ installation: { ...allow("repo.read", ["b/**", "a/**"]), capabilities: ["repo.read"] } }))
     const b = compilePolicy(layers({ installation: { ...allow("repo.read", ["a/**", "b/**"]), capabilities: ["repo.read"] } }))

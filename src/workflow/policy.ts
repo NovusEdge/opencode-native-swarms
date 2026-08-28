@@ -24,7 +24,7 @@ function uniqueSorted(values: readonly string[]): string[] { return [...new Set(
 function policyOf(layer: PolicyLayer): PermissionPolicy { return "permissions" in layer ? layer.permissions : layer }
 
 function validPath(value: string): boolean {
-  if (!value || value.includes("\0") || value.includes("\\") || value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value)) return false
+  if (!value || value !== value.trim() || value.includes("\0") || value.includes("\\") || value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value)) return false
   return !value.split("/").some((segment) => segment === "..")
 }
 function matches(pattern: string, path: string): boolean {
@@ -41,6 +41,20 @@ function canonical(value: unknown): string {
 
 export function compilePolicy(input: PolicyLayers): CompiledPolicy {
   const source = layerNames.map((name) => policyOf(input[name])) as [PermissionPolicy, PermissionPolicy, PermissionPolicy, PermissionPolicy]
+  for (let i = 0; i < source.length; i++) {
+    for (const field of ["readPaths", "writePaths"] as const) {
+      for (let j = 0; j < source[i][field].length; j++) {
+        if (!validPath(source[i][field][j])) throw new Error(`Invalid policy path pattern (${layerNames[i]}.${field}[${j}])`)
+      }
+    }
+  }
+  const configuredProtectedPaths = [
+    ...(input.protectedPaths ?? []),
+    ...layerNames.flatMap((name) => "protectedPaths" in input[name] ? input[name].protectedPaths ?? [] : []),
+  ]
+  for (let i = 0; i < configuredProtectedPaths.length; i++) {
+    if (!validPath(configuredProtectedPaths[i])) throw new Error(`Invalid policy path pattern (protectedPaths[${i}])`)
+  }
   const capabilities = source.reduce((set, layer) => {
     const allowed = new Set(layer.capabilities)
     return new Set([...set].filter((capability) => allowed.has(capability)))
@@ -49,8 +63,7 @@ export function compilePolicy(input: PolicyLayers): CompiledPolicy {
   for (const capability of deny) capabilities.delete(capability)
   const protectedPaths = uniqueSorted([
     ...defaultProtectedPaths,
-    ...(input.protectedPaths ?? []),
-    ...layerNames.flatMap((name) => "protectedPaths" in input[name] ? input[name].protectedPaths ?? [] : []),
+    ...configuredProtectedPaths,
   ])
   const result = {
     capabilities: [...capabilities].sort(), deny, readPaths: uniqueSorted(source[3].readPaths), writePaths: uniqueSorted(source[3].writePaths),
