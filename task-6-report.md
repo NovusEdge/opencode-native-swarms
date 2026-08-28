@@ -32,3 +32,8 @@ protected paths, preserves schema hashes, validates canonical repository/XDG
 inputs, recovers corrupt primaries from complete backups, validates nested
 records consistently, and adds drift-aware persisted workflow transitions and
 revalidation hooks.
+
+The subsequent hardening round adds broad protected-scope rejection, exact
+workspace evidence matching, shared immutable definition/step graph, and
+lock-serialized persisted step transitions and resumability checks with drift
+guards.

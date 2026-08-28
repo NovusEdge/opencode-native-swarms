@@ -37,8 +37,8 @@ export function planWorkflow(input: PlannerInput): WorkflowPlan {
     if (byId.has(step.id)) throw new Error(`Duplicate step id: ${step.id}`)
     byId.set(step.id, step)
     if (!definition.workspace.allowedModes.includes(step.workspace.mode)) throw new Error(`Workspace mode is not allowed: ${step.id}`)
-    for (const p of [...step.permissions.readPaths, ...step.permissions.writePaths]) { ensureScope(p, `step ${step.id}`); if ((input.installation?.protectedPaths ?? []).some((x) => picomatch(x, { dot: true })(p))) throw new Error(`Protected scope: ${p}`); if (!decidePath(policy, step.permissions.writePaths.includes(p) ? "write" : "read", p).allowed) throw new Error(`Step scope outside policy: ${p}`) }
-    for (const p of [...definition.permissions.readPaths, ...definition.permissions.writePaths]) { ensureScope(p, "workflow"); if (!decidePath(policy, definition.permissions.writePaths.includes(p) ? "write" : "read", p).allowed) throw new Error(`Workflow scope outside policy: ${p}`) }
+    for (const p of [...step.permissions.readPaths, ...step.permissions.writePaths]) { ensureScope(p, `step ${step.id}`); if (step.permissions.writePaths.includes(p) && (input.installation?.protectedPaths ?? []).some((x) => { try { return picomatch(p, { dot: true })(x) } catch { return true } })) throw new Error(`Protected scope: ${p}`); if (!decidePath(policy, step.permissions.writePaths.includes(p) ? "write" : "read", p).allowed) throw new Error(`Step scope outside policy: ${p}`) }
+    for (const p of [...definition.permissions.readPaths, ...definition.permissions.writePaths]) { ensureScope(p, "workflow"); if (definition.permissions.writePaths.includes(p) && (input.installation?.protectedPaths ?? []).some((x) => { try { return picomatch(p, { dot: true })(x) } catch { return true } })) throw new Error(`Protected workflow scope: ${p}`); if (!decidePath(policy, definition.permissions.writePaths.includes(p) ? "write" : "read", p).allowed) throw new Error(`Workflow scope outside policy: ${p}`) }
     for (const command of step.commands) {
       if (!evaluateCommand(commandPolicy, command).decision.allowed) throw new Error(`Command unavailable under compiled policy: ${step.id}`)
     }
@@ -48,7 +48,7 @@ export function planWorkflow(input: PlannerInput): WorkflowPlan {
     for (const capability of step.permissions.capabilities) if (!decideCapability(policy, capability).allowed) throw new Error(`Capability unavailable: ${capability}`)
     for (const p of step.permissions.readPaths) if (!decidePath(policy, "read", p).allowed) throw new Error(`Read scope outside policy: ${p}`)
     for (const p of step.permissions.writePaths) if (!decidePath(policy, "write", p).allowed) throw new Error(`Write scope outside policy: ${p}`)
-    if (input.workspacePlans) { const workspace = input.workspacePlans[step.id]; if (!workspace?.path || !workspace.mode || !workspace.repositoryId) throw new Error(`Workspace evidence unavailable: ${step.id}`); if (input.repositoryId && workspace.repositoryId !== input.repositoryId) throw new Error(`Workspace repository identity mismatch: ${step.id}`) }
+    if (input.workspacePlans) { const workspace = input.workspacePlans[step.id]; if (!workspace?.path || !workspace.mode || !workspace.repositoryId) throw new Error(`Workspace evidence unavailable: ${step.id}`); if (workspace.mode !== step.workspace.mode || !["read-only", "current", "worktree", "existing"].includes(workspace.mode)) throw new Error(`Workspace mode mismatch: ${step.id}`); if (input.repositoryId && workspace.repositoryId !== input.repositoryId) throw new Error(`Workspace repository identity mismatch: ${step.id}`) }
   }
   const indegree = new Map<string, number>(), children = new Map<string, string[]>()
   for (const step of definition.steps) {
@@ -85,9 +85,9 @@ export function planWorkflow(input: PlannerInput): WorkflowPlan {
   }
   if (definition.maxConcurrency < 1 || (input.installation?.maxConcurrency !== undefined && definition.maxConcurrency > input.installation.maxConcurrency)) throw new Error("Concurrency exceeds installation limit")
   const steps = order.map((id) => clone(byId.get(id)!))
-  const plannedDefinition = clone(definition)
+  const plannedDefinition = { ...clone(definition), steps }
   const { hash: _sourceHash, ...hashInput } = plannedDefinition as WorkflowDefinition
-  return immutable({ definition: plannedDefinition, steps, policy: clone(policy), policyHash: policy.hash, workflowHash: definition.hash || hash(hashInput), maxConcurrency: definition.maxConcurrency })
+  return immutable({ definition: plannedDefinition, steps: plannedDefinition.steps, policy: clone(policy), policyHash: policy.hash, workflowHash: definition.hash || hash(hashInput), maxConcurrency: definition.maxConcurrency })
 }
 
 export function topologicalReadySteps(plan: WorkflowPlan, records: readonly Readonly<{ id: string; state: StepState }>[]): readonly WorkflowStep[] {
