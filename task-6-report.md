@@ -62,3 +62,8 @@ canonical workspace path/root/identity/ownership evidence during planning.
 Workspace containment is now strict: planner workspace evidence must include
 matching canonical root/path proofs, and rejects outside-root and symlink-escape
 resolutions while preserving identity and ownership requirements.
+
+Planner workspace validation now requires an injected realpath adapter and
+performs asynchronous canonical root/path resolution before containment and
+identity/ownership checks; caller-supplied canonical strings are only
+cross-checked against adapter results.
