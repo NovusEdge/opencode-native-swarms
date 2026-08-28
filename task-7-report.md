@@ -18,3 +18,8 @@ Review hardening added serialized state read-modify-write updates, scheduler
 reservations for concurrency, bounded asynchronous status waits with timeout,
 cancellation guards, persisted workspace evidence, event correlation, and
 repository evidence on launch.
+
+Final review-fix pass adds cross-runtime atomic state updates, cancellation
+checks around native session creation/prompting, strict bound-session event
+correlation, consumed approval recording, output byte caps, lost-session
+classification, and optional host hook registration.

@@ -83,6 +83,10 @@ export class RepositoryStateStore {
       await this.fs.atomicWrite(`${target}.complete`, data)
     })
   }
+  /** Serialize a read-modify-write across runtime instances and processes. */
+  async update(runId: string, fn: (record: RunRecord) => RunRecord): Promise<RunRecord | undefined> {
+    return this.withLock(async () => { const current = await this.read(runId); if (!current) return undefined; const next = fn(current); await this.writeUnlocked(runId, next); return next })
+  }
   async appendEvent(runId: string, event: StateEvent): Promise<RunRecord | undefined> {
     return this.withLock(async () => { const current = await this.read(runId); if (!current) return undefined; if (!event?.type || typeof event.type !== "string" || typeof event === "object" && Object.keys(event).some((k) => !["type", "at", "details"].includes(k))) throw new Error("Invalid state event"); const events = [...(((current as any).events ?? []) as unknown[]), sanitize(event)]; const next = this.validate({ ...current, events, updatedAt: new Date().toISOString() } as RunRecord); await this.writeUnlocked(runId, next); return next })
   }
