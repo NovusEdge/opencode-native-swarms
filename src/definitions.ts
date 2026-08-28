@@ -28,6 +28,8 @@ const testCommandPermissions = {
   "npm run test": "allow",
   "npm run lint": "allow",
   "npm run typecheck": "allow",
+  "bun run check": "allow",
+  "bun run typecheck": "allow",
   "pnpm test": "allow",
   "pnpm run test": "allow",
   "pnpm lint": "allow",
