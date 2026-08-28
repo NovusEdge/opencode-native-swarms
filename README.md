@@ -67,9 +67,12 @@ external diff and text-conversion drivers are disabled, and protected paths
 are excluded from patch output. Git subprocesses strip inherited `GIT_*`
 variables, disable lazy fetching, optional locks, external configuration, and
 fsmonitor, and have output and time limits. The tester's shell permission
-denies everything before enumerating exact, argument-free test commands. Test
-scripts still execute project code, so use the tester only in repositories you
-already trust.
+denies everything before enumerating exact, argument-free commands. In addition
+to the existing exact commands, it allows `bun run check` and `bun run
+typecheck`; arbitrary script names, added arguments, and shell composition
+remain denied.
+Test scripts still execute project code, so use the tester only in repositories
+you already trust.
 
 If your configuration already defines one of these names, your definition wins
 and the plugin leaves that object unchanged.
