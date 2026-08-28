@@ -105,6 +105,7 @@ export type RunRecord = Readonly<{
   steps: readonly StepRecord[]
   policyHash: string
   repository?: Readonly<{ id: string; directory: string }>
+  evidence?: Readonly<{ gitRevision?: string; outputHash?: string; sessionHash?: string; ownership?: string }>
 }>
 export type WorkflowPlan = Readonly<{
   definition: WorkflowDefinition

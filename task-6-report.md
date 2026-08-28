@@ -54,3 +54,7 @@ updates and expected metadata guards.
 The final regression fix rejects malformed/noncanonical source hashes and
 compares supplied Git, output, session, and ownership evidence against the
 persisted expectations, preserving matching revalidation facts.
+
+Acceptance hardening adds typed persisted evidence, validates raw records
+before redaction, permits only legal failed-to-stale transitions, and requires
+canonical workspace path/root/identity/ownership evidence during planning.

@@ -57,6 +57,7 @@ export class RepositoryStateStore {
     if (!( ["draft", "awaiting-approval", "running", "succeeded", "failed", "cancelled", "stale"] as readonly string[]).includes(record.state as string)) throw new Error("Invalid workflow state")
     if (!Array.isArray(record.steps)) throw new Error("Corrupt state steps")
     for (const step of record.steps) { if (!step || typeof step !== "object" || typeof (step as any).id !== "string" || !(["queued", "ready", "running", "succeeded", "failed", "cancelled", "skipped"] as readonly string[]).includes((step as any).state)) throw new Error("Corrupt step record") }
+    if (record.evidence !== undefined) { if (!record.evidence || typeof record.evidence !== "object") throw new Error("Corrupt evidence"); for (const [key, value] of Object.entries(record.evidence as object)) if (!["gitRevision", "outputHash", "sessionHash", "ownership"].includes(key) || typeof value !== "string") throw new Error("Corrupt evidence") }
     return value as RunRecord
   }
   async read(runId: string): Promise<RunRecord | undefined> {
@@ -71,7 +72,7 @@ export class RepositoryStateStore {
   }
   async write(runId: string, record: RunRecord): Promise<void> {
     await this.withLock(async () => {
-      const safe = this.validate(sanitize(record)); const data = JSON.stringify(safe)
+      this.validate(record); const safe = this.validate(sanitize(record)); const data = JSON.stringify(safe)
       const target = this.path(runId), temp = `${target}.tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`
       const fsAny = this.fs as FilesystemAdapter & Record<string, unknown>
       if (typeof fsAny.writeTemp === "function") await (fsAny.writeTemp as (path: string, data: string) => Promise<void>)(temp, data)
