@@ -37,3 +37,8 @@ The subsequent hardening round adds broad protected-scope rejection, exact
 workspace evidence matching, shared immutable definition/step graph, and
 lock-serialized persisted step transitions and resumability checks with drift
 guards.
+
+Final hardening adds lock-coherent stale persistence and resume gating,
+identity/revision/policy guards for step transitions, lifecycle evidence
+events, explicit corrupt-copy errors, and safe path validation that supports
+spaces and non-ASCII repository/XDG paths.

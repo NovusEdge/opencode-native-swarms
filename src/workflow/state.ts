@@ -21,7 +21,7 @@ function sanitize(value: unknown, key = ""): unknown {
 }
 function keyFor(repository: RepositoryIdentity | string): string {
   if (typeof repository === "string") throw new Error("Canonical repository identity with metadata is required")
-  if (!/^\/[A-Za-z0-9._+~/-]+$/.test(repository.commonDirectory) || repository.commonDirectory.includes("..") || repository.commonDirectory.includes("\0") || !repository.metadata || Object.keys(repository.metadata).length === 0) throw new Error("Repository identity unavailable")
+  if (!repository.commonDirectory.startsWith("/") || repository.commonDirectory.includes("..") || repository.commonDirectory.includes("\\") || repository.commonDirectory.includes("\0") || !repository.metadata || Object.keys(repository.metadata).length === 0) throw new Error("Repository identity unavailable")
   const canonical = (v: unknown): string => Array.isArray(v) ? `[${v.map(canonical).join(",")}]` : v && typeof v === "object" ? `{${Object.keys(v as object).sort().map((k) => `${JSON.stringify(k)}:${canonical((v as Record<string, unknown>)[k])}`).join(",")}}` : JSON.stringify(v)
   return createHash("sha256").update(canonical(repository)).digest("hex")
 }
@@ -42,7 +42,7 @@ export class RepositoryStateStore {
     const fallback = `${this.env.homeDirectory()}/.local/state`
     if (!configured && !this.env.homeDirectory()) throw new Error("State directory unavailable")
     const stateBase = configured || fallback
-    if (!/^\/[A-Za-z0-9._+~/-]+$/.test(stateBase) || stateBase.includes("..") || stateBase.includes("\0")) throw new Error("Invalid XDG state directory")
+    if (!stateBase.startsWith("/") || stateBase.includes("..") || stateBase.includes("\\") || stateBase.includes("\0")) throw new Error("Invalid XDG state directory")
     this.root = `${stateBase.replace(/\/$/, "")}/opencode-native-swarms/${this.repositoryKey}`
   }
   private path(runId: string) { if (!runId || /[\\/\0]/.test(runId)) throw new Error("Invalid run ID"); return `${this.root}/${runId}.json` }
@@ -60,7 +60,14 @@ export class RepositoryStateStore {
     return value as RunRecord
   }
   async read(runId: string): Promise<RunRecord | undefined> {
-    try { return this.validate(JSON.parse(await this.fs.read(this.path(runId)))) } catch (error) { try { return this.validate(JSON.parse(await this.fs.read(`${this.path(runId)}.complete`))) } catch { if (error instanceof Error && /not found|ENOENT|Corrupt|Incomplete|Invalid/i.test(error.message)) return undefined; throw error } }
+    let primary: string | undefined
+    try { primary = await this.fs.read(this.path(runId)); return this.validate(JSON.parse(primary)) } catch (error) {
+      try { return this.validate(JSON.parse(await this.fs.read(`${this.path(runId)}.complete`))) } catch (backupError) {
+        const missing = (e: unknown) => e instanceof Error && /not found|ENOENT/i.test(e.message)
+        if (missing(error) && missing(backupError)) return undefined
+        throw new Error("Corrupt state: primary and last-complete records are unavailable")
+      }
+    }
   }
   async write(runId: string, record: RunRecord): Promise<void> {
     await this.withLock(async () => {
@@ -81,12 +88,12 @@ export class RepositoryStateStore {
   async transition(runId: string, next: WorkflowState, expected?: Readonly<{ repositoryId?: string; workspaceId?: string; revision?: number; policyHash?: string }>): Promise<RunRecord | undefined> {
     return this.withLock(async () => { const current = await this.read(runId); if (!current) return undefined; this.checkExpected(current, expected); transitionWorkflow(current.state, next); const updated = { ...current, state: next, updatedAt: new Date().toISOString() } as RunRecord; await this.writeUnlocked(runId, updated); return updated })
   }
-  async transitionStep(runId: string, stepId: string, next: StepState): Promise<RunRecord | undefined> { return this.withLock(async () => { const current = await this.read(runId); if (!current) return undefined; const steps = current.steps.map((step) => step.id === stepId ? { ...step, state: this.legalStep(step.state, next) } : step); const updated = { ...current, steps, updatedAt: new Date().toISOString() } as RunRecord; await this.writeUnlocked(runId, updated); return updated }) }
-  async resume(runId: string, expected: Readonly<{ revision: number; policyHash: string; repositoryId?: string; workspaceId?: string }>): Promise<RunRecord> { return this.withLock(async () => { const current = await this.read(runId); if (!current) throw new Error("Run absent"); this.checkExpected(current, expected); if (current.state !== "running" && current.state !== "failed") throw new Error("Run is not resumable"); return current }) }
+  async transitionStep(runId: string, stepId: string, next: StepState, expected?: Readonly<{ revision?: number; policyHash?: string; repositoryId?: string; workspaceId?: string }>): Promise<RunRecord | undefined> { return this.withLock(async () => { const current = await this.read(runId); if (!current) return undefined; this.checkExpected(current, expected); if (!current.steps.some((step) => step.id === stepId)) throw new Error("Unknown step ID"); const steps = current.steps.map((step) => step.id === stepId ? { ...step, state: this.legalStep(step.state, next) } : step); const updated = { ...current, steps, events: [...(((current as any).events ?? []) as unknown[]), { type: "step-transition", stepId, next, at: new Date().toISOString() }], updatedAt: new Date().toISOString() } as RunRecord; await this.writeUnlocked(runId, updated); return updated }) }
+  async resume(runId: string, expected: Readonly<{ revision: number; policyHash: string; repositoryId?: string; workspaceId?: string }>): Promise<RunRecord> { return this.withLock(async () => { const current = await this.read(runId); if (!current) throw new Error("Run absent"); this.checkExpected(current, expected); if (current.state === "stale") throw new Error("Stale run requires an amendment/new revision"); if (current.state !== "running" && current.state !== "failed") throw new Error("Run is not resumable"); const updated = { ...current, events: [...(((current as any).events ?? []) as unknown[]), { type: "resume-approved", at: new Date().toISOString() }], updatedAt: new Date().toISOString() } as RunRecord; await this.writeUnlocked(runId, updated); return updated }) }
   private legalStep(current: string, next: StepState): StepState { const legal: Record<string, readonly string[]> = { queued: ["ready", "skipped"], ready: ["running", "cancelled"], running: ["succeeded", "failed", "cancelled"] }; if (!legal[current]?.includes(next)) throw new Error(`Illegal step transition: ${current} -> ${next}`); return next }
   private checkExpected(record: RunRecord, expected?: Readonly<{ repositoryId?: string; workspaceId?: string; revision?: number; policyHash?: string }>) { if (expected?.revision !== undefined && expected.revision !== record.revision || expected?.policyHash !== undefined && expected.policyHash !== record.policyHash || expected?.repositoryId !== undefined && (record.repository?.id !== expected.repositoryId) || expected?.workspaceId !== undefined && (record.repository?.directory !== expected.workspaceId)) throw new Error("State drift detected") }
   async revalidate(runId: string, current: Readonly<{ repositoryId?: string; workspaceId?: string; revision?: number; policyHash?: string }>): Promise<Readonly<{ stale: boolean; record?: RunRecord }>> {
-    const record = await this.read(runId); if (!record) return { stale: true }; const stale = (current.revision !== undefined && current.revision !== record.revision) || (current.policyHash !== undefined && current.policyHash !== record.policyHash) || (current.repositoryId !== undefined && (record as any).repository?.id !== current.repositoryId) || (current.workspaceId !== undefined && (record as any).repository?.directory !== current.workspaceId); return { stale, record }
+    return this.withLock(async () => { const record = await this.read(runId); if (!record) return { stale: true }; const stale = (current.revision !== undefined && current.revision !== record.revision) || (current.policyHash !== undefined && current.policyHash !== record.policyHash) || (current.repositoryId !== undefined && (record as any).repository?.id !== current.repositoryId) || (current.workspaceId !== undefined && (record as any).repository?.directory !== current.workspaceId); if (!stale) return { stale, record }; const updated = { ...record, state: "stale", events: [...(((record as any).events ?? []) as unknown[]), { type: "stale", reason: "revalidation-drift", at: new Date().toISOString() }], updatedAt: new Date().toISOString() } as RunRecord; await this.writeUnlocked(runId, updated); return { stale: true, record: updated } })
   }
   private async writeUnlocked(runId: string, record: RunRecord): Promise<void> { const data = JSON.stringify(sanitize(record)); const target = this.path(runId), temp = `${target}.tmp-${Date.now()}`; const anyFs = this.fs as any; if (typeof anyFs.writeTemp === "function") await anyFs.writeTemp(temp, data); else await this.fs.atomicWrite(temp, data); if (typeof anyFs.fsync === "function") try { await anyFs.fsync(temp) } catch {} if (typeof anyFs.rename === "function") await anyFs.rename(temp, target); else await this.fs.atomicWrite(target, data); await this.fs.atomicWrite(`${target}.complete`, data) }
   async listRuns(): Promise<readonly RunRecord[]> {
