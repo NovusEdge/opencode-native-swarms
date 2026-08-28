@@ -1,4 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
+import { runBounded } from "./process"
 
 const allowedAgents = new Set(["swarm-reviewer", "swarm-tester"])
 const maximumOutputLength = 200_000
@@ -63,14 +64,32 @@ export function buildGitArguments(input: GitInspectArgs): string[] {
   switch (input.operation) {
     case "status":
       rejectArguments(Boolean(revision || compareTo || input.staged || hasLimit), "status")
-      return ["--no-pager", "status", "--short", "--branch", "--untracked-files=normal"]
+      return [
+        "--no-optional-locks",
+        "-c",
+        "core.fsmonitor=false",
+        "--no-pager",
+        "status",
+        "--short",
+        "--branch",
+        "--untracked-files=normal",
+      ]
 
     case "diff": {
       rejectArguments(hasLimit, "diff")
       rejectArguments(Boolean(compareTo && !revision), "diff")
       rejectArguments(Boolean(input.staged && (revision || compareTo)), "diff")
 
-      const args = ["--no-pager", "diff", "--no-ext-diff", "--no-textconv", "--no-renames"]
+      const args = [
+        "--no-optional-locks",
+        "-c",
+        "core.fsmonitor=false",
+        "--no-pager",
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-renames",
+      ]
       if (input.staged) args.push("--cached")
       if (revision) args.push(revision)
       if (compareTo) args.push(compareTo)
@@ -81,6 +100,9 @@ export function buildGitArguments(input: GitInspectArgs): string[] {
     case "log":
       rejectArguments(Boolean(compareTo || input.staged), "log")
       return [
+        "--no-optional-locks",
+        "-c",
+        "core.fsmonitor=false",
         "--no-pager",
         "log",
         "--oneline",
@@ -93,6 +115,9 @@ export function buildGitArguments(input: GitInspectArgs): string[] {
       rejectArguments(Boolean(compareTo || input.staged || hasLimit), "show")
       if (!revision) throw new Error("Git show inspection requires a revision")
       return [
+        "--no-optional-locks",
+        "-c",
+        "core.fsmonitor=false",
         "--no-pager",
         "show",
         "--format=fuller",
@@ -107,11 +132,26 @@ export function buildGitArguments(input: GitInspectArgs): string[] {
 
     case "branch":
       rejectArguments(Boolean(revision || compareTo || input.staged || hasLimit), "branch")
-      return ["--no-pager", "branch", "--show-current"]
+      return [
+        "--no-optional-locks",
+        "-c",
+        "core.fsmonitor=false",
+        "--no-pager",
+        "branch",
+        "--show-current",
+      ]
 
     case "rev-parse":
       rejectArguments(Boolean(compareTo || input.staged || hasLimit), "rev-parse")
-      return ["--no-pager", "rev-parse", "--verify", `${revision ?? "HEAD"}^{commit}`]
+      return [
+        "--no-optional-locks",
+        "-c",
+        "core.fsmonitor=false",
+        "--no-pager",
+        "rev-parse",
+        "--verify",
+        `${revision ?? "HEAD"}^{commit}`,
+      ]
   }
 }
 
@@ -120,21 +160,20 @@ async function runGit(
   args: string[],
   signal: AbortSignal,
 ): Promise<string> {
-  const child = Bun.spawn(["git", "-C", worktree, ...args], {
-    stdout: "pipe",
-    stderr: "pipe",
+  const result = await runBounded(["git", "-C", worktree, ...args], {
     signal,
+    env: { ...Bun.env, GIT_OPTIONAL_LOCKS: "0" },
+    maxStdoutBytes: maximumOutputLength,
+    maxStderrBytes: 32_000,
+    timeoutMs: 15_000,
   })
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ])
 
-  if (exitCode !== 0) {
-    throw new Error(stderr.trim() || `Git inspection exited with status ${exitCode}`)
+  if (result.exitCode !== 0) {
+    throw new Error(
+      result.stderr.trim() || `Git inspection exited with status ${result.exitCode}`,
+    )
   }
-  return stdout
+  return result.stdout
 }
 
 async function resolveCommit(
@@ -145,7 +184,15 @@ async function resolveCommit(
   try {
     const output = await runGit(
       worktree,
-      ["--no-pager", "rev-parse", "--verify", `${revision}^{commit}`],
+      [
+        "--no-optional-locks",
+        "-c",
+        "core.fsmonitor=false",
+        "--no-pager",
+        "rev-parse",
+        "--verify",
+        `${revision}^{commit}`,
+      ],
       signal,
     )
     const commit = output.trim()
@@ -195,7 +242,6 @@ export const nativeSwarmGitInspectTool = tool({
     const gitArguments = buildGitArguments(safeArgs)
     const stdout = await runGit(context.worktree, gitArguments, context.abort)
 
-    if (stdout.length <= maximumOutputLength) return stdout
-    return `${stdout.slice(0, maximumOutputLength)}\n[output truncated]`
+    return stdout
   },
 })

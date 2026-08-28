@@ -38,20 +38,28 @@ and the `swarm` command.
 
 | Name | Mode | Boundary |
 | --- | --- | --- |
-| `workflow-director` | primary | Reads and searches locally, asks questions, and delegates only to the three workers below |
-| `swarm-researcher` | subagent | Reads and searches locally and consults web sources; no shell or delegation |
+| `workflow-director` | primary | Reads and searches locally through protected tools, asks questions, and delegates only to the three workers below |
+| `swarm-researcher` | subagent | Uses protected local search and web sources; no shell or delegation |
 | `swarm-reviewer` | subagent | Reads locally and uses the plugin's hardened, non-shell Git inspection tool |
-| `swarm-tester` | subagent | Uses hardened Git inspection and approved test, lint, and type-check command families |
+| `swarm-tester` | subagent | Uses hardened Git inspection and approved fixed test, lint, and type-check commands |
 | `/swarm` | command | Starts `workflow-director` for the supplied objective |
 
 Every agent is deny-by-default. Reads of `.env`, environment-file variants,
 and `secrets/**` are denied, with example environment files explicitly allowed.
+Built-in grep is disabled because OpenCode authorizes its regex rather than the
+paths it reads. The replacement `swarm_search` tool fixes searches to the active
+worktree and excludes all environment files—including examples—and
+`secrets/**`; example environment files remain available only through the
+path-checked read tool.
+
 The reviewer has no shell access. Git inspection is implemented as fixed
 argument-array operations: arbitrary paths and flags are not accepted,
 external diff and text-conversion drivers are disabled, and protected paths
-are excluded from patch output. The tester's shell permission denies everything
-before enumerating its small test-command allowlist. Test scripts still execute
-project code, so use the tester only in repositories you already trust.
+are excluded from patch output. Git subprocesses also disable optional locks
+and fsmonitor and have output and time limits. The tester's shell permission
+denies everything before enumerating exact, argument-free test commands. Test
+scripts still execute project code, so use the tester only in repositories you
+already trust.
 
 If your configuration already defines one of these names, your definition wins
 and the plugin leaves that object unchanged.
@@ -61,7 +69,7 @@ and the plugin leaves that object unchanged.
 From an OpenCode session:
 
 ```text
-/swarm inspect this change for correctness, verify its focused tests, and summarize any gaps
+/swarm inspect this change for correctness, run its configured test command, and summarize any gaps
 ```
 
 The director may launch at most four independent background assignments while

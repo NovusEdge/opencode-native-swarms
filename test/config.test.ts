@@ -95,6 +95,8 @@ test("gives the researcher web access without shell or delegation", () => {
 
   expect(permission.webfetch).toBe("allow")
   expect(permission.websearch).toBe("allow")
+  expect(permission.grep).toBe("deny")
+  expect(permission.swarm_search).toBe("allow")
   expect(permission).not.toHaveProperty("bash")
   expect(permission).not.toHaveProperty("task")
 })
@@ -106,6 +108,8 @@ test("gives the reviewer hardened git inspection without shell access", () => {
   const permission = permissionsFor(config, "swarm-reviewer")
 
   expect(permission.swarm_git_inspect).toBe("allow")
+  expect(permission.swarm_search).toBe("allow")
+  expect(permission.grep).toBe("deny")
   expect(permission.bash).toBe("deny")
 })
 
@@ -117,6 +121,8 @@ test("limits the tester shell to approved test command families", () => {
   const bash = permission.bash as Record<string, string>
 
   expect(permission.swarm_git_inspect).toBe("allow")
+  expect(permission.swarm_search).toBe("allow")
+  expect(permission.grep).toBe("deny")
   expect(Object.keys(bash)).toHaveLength(14)
   expect(bash).toEqual({
     "*": "deny",
@@ -186,4 +192,5 @@ test("exports a plugin hook that applies the native swarm config", async () => {
   expect(config.command?.swarm?.agent).toBe("workflow-director")
   expect(config.command?.swarm?.subtask).toBe(false)
   expect(hooks.tool?.swarm_git_inspect).toBeDefined()
+  expect(hooks.tool?.swarm_search).toBeDefined()
 })

@@ -30,6 +30,7 @@ describe("hardened git inspection", () => {
   test("builds diff commands with external execution disabled and protected paths excluded", () => {
     const args = buildGitArguments({ operation: "diff", revision: "origin/main" })
 
+    expect(args.slice(0, 3)).toEqual(["--no-optional-locks", "-c", "core.fsmonitor=false"])
     expect(args).toContain("--no-ext-diff")
     expect(args).toContain("--no-textconv")
     expect(args).toContain("--")

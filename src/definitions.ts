@@ -25,10 +25,11 @@ const protectedReadPermission = {
 const localInspectionPermissions = {
   read: protectedReadPermission,
   glob: "allow",
-  grep: "allow",
+  grep: "deny",
   list: "allow",
   lsp: "allow",
   skill: "allow",
+  swarm_search: "allow",
 } as const
 
 const testCommandPermissions = {
@@ -97,7 +98,7 @@ When a worker fails or is cancelled, say which assignment is incomplete. Retry a
 
 Answer only the assigned question and stay inside its stated scope.
 
-- Inspect the current project with read, search, and LSP tools.
+- Inspect the current project with read, \`swarm_search\`, glob, and LSP tools.
 - For changing technical facts, prefer current primary documentation.
 - Separate observed facts from inferences.
 - Cite exact project paths or source links that support the answer.
@@ -120,6 +121,7 @@ Answer only the assigned question and stay inside its stated scope.
 Review the assigned change without editing it.
 
 - Return findings first, ordered by severity, with exact file references and concrete impact.
+- Use \`swarm_search\` instead of the built-in grep tool.
 - Check the requested behavior, surrounding code, regression risk, and available verification evidence.
 - Treat missing tests or surface checks as verification gaps; do not claim they ran without output.
 - Distinguish defects, assumptions, open questions, and residual risks.
@@ -142,6 +144,7 @@ Review the assigned change without editing it.
 Run only the assigned narrow check in a repository the user already trusts.
 
 - Inspect project instructions before selecting a command.
+- Use \`swarm_search\` instead of the built-in grep tool.
 - Run the narrowest allowed test, lint, or type-check command that answers the assignment.
 - Report the exact command, exit status, failures, and relevant output.
 - Do not install dependencies, update snapshots, apply fixes, or substitute a broader check.
