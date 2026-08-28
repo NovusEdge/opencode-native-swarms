@@ -123,13 +123,15 @@ test("limits the tester shell to approved test command families", () => {
   expect(permission.swarm_git_inspect).toBe("allow")
   expect(permission.swarm_search).toBe("allow")
   expect(permission.grep).toBe("deny")
-  expect(Object.keys(bash)).toHaveLength(14)
+  expect(Object.keys(bash)).toHaveLength(16)
   expect(bash).toEqual({
     "*": "deny",
     "npm test": "allow",
     "npm run test": "allow",
     "npm run lint": "allow",
     "npm run typecheck": "allow",
+    "bun run check": "allow",
+    "bun run typecheck": "allow",
     "pnpm test": "allow",
     "pnpm run test": "allow",
     "pnpm lint": "allow",
@@ -140,6 +142,17 @@ test("limits the tester shell to approved test command families", () => {
     "cargo test": "allow",
     "go test ./...": "allow",
   })
+})
+
+test("does not broaden Bun script permissions", () => {
+  const config: Config = {}
+  applyNativeSwarmsConfig(config)
+  const bash = permissionsFor(config, "swarm-tester").bash as Record<string, string>
+
+  expect(bash["*"]).toBe("deny")
+  expect(bash["bun run check --watch"]).toBeUndefined()
+  expect(bash["bun run arbitrary-script"]).toBeUndefined()
+  expect(bash["bun run check && echo escaped"]).toBeUndefined()
 })
 
 test("protects environment and secrets files for every swarm agent", () => {
