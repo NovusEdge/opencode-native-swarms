@@ -66,15 +66,34 @@ describe("hardened git inspection", () => {
   })
 
   test("runs a safe status inspection for an allowed worker", async () => {
-    const context = {
-      agent: "swarm-reviewer",
-      worktree: process.cwd(),
-      abort: new AbortController().signal,
-    } as ToolContext
+    const directory = await mkdtemp(join(tmpdir(), "native-swarms-status-"))
 
-    const output = await nativeSwarmGitInspectTool.execute({ operation: "status" }, context)
+    try {
+      await Bun.write(join(directory, "safe.ts"), "export const value = 1\n")
+      runGit(directory, "init", "-b", "status-test")
+      runGit(directory, "add", ".")
+      runGit(
+        directory,
+        "-c",
+        "user.name=Native Swarms Test",
+        "-c",
+        "user.email=test@example.invalid",
+        "commit",
+        "-m",
+        "initial",
+      )
+      const context = {
+        agent: "swarm-reviewer",
+        worktree: directory,
+        abort: new AbortController().signal,
+      } as ToolContext
 
-    expect(output).toContain("## feat/native-swarm-config")
+      const output = await nativeSwarmGitInspectTool.execute({ operation: "status" }, context)
+
+      expect(output).toContain("## status-test")
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
   })
 
   test("excludes protected file contents from a real repository diff", async () => {

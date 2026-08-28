@@ -17,6 +17,7 @@ pushes, or external-service writes.
   `OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true`
 - Bun for local development
 - [uv](https://docs.astral.sh/uv/getting-started/installation/) for pre-commit
+- [ripgrep](https://github.com/BurntSushi/ripgrep#installation) for protected search
 
 The plugin omits every agent's `model` field. OpenCode therefore uses the
 models selected by your own configuration.

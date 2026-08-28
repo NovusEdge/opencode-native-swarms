@@ -38,6 +38,7 @@ test("CI installs locked dependencies and exercises the local quality gates", as
   const readme = await readProjectFile("README.md")
 
   expect(workflow).toContain("bun install --frozen-lockfile")
+  expect(workflow).toContain("sudo apt-get install --yes ripgrep")
   expect(workflow).toContain("bun run hooks:run")
   expect(workflow).toContain("bun run package:check")
   expect(workflow).toContain("docker://ghcr.io/gitleaks/gitleaks@sha256:")
@@ -45,4 +46,5 @@ test("CI installs locked dependencies and exercises the local quality gates", as
   expect(workflow).toContain("persist-credentials: false")
   expect(readme).toContain("actions/workflows/ci.yml/badge.svg")
   expect(readme).toContain("docs.astral.sh/uv/getting-started/installation")
+  expect(readme).toContain("github.com/BurntSushi/ripgrep")
 })
