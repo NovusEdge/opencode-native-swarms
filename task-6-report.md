@@ -19,3 +19,10 @@ Focused verification:
 `bun test src/workflow/planner.test.ts src/workflow/state.test.ts && bun run typecheck`
 
 Result: 5 tests passed, 0 failed; TypeScript check passed.
+
+Review follow-up hardens command allow/deny-floor evaluation, workflow and
+step scope ceilings, resource limits, transitive input reachability, deep
+cloning, and canonical hashing. State identity now requires canonical common
+directory metadata; XDG configuration is authoritative, writes retain a
+complete backup, and events use the same atomic protocol with validation and
+clear corruption failures.
