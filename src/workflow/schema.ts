@@ -46,13 +46,21 @@ function scope(value: string): string {
   return parts.join("/") || "."
 }
 function sort(values: readonly string[]): string[] { return [...values].sort() }
+function compareCodePoint(a: string, b: string): number {
+  const aa = Array.from(a), bb = Array.from(b)
+  for (let i = 0; i < Math.min(aa.length, bb.length); i++) {
+    const diff = aa[i].codePointAt(0)! - bb[i].codePointAt(0)!
+    if (diff) return diff
+  }
+  return aa.length - bb.length
+}
 function normalize(input: any): WorkflowDefinition {
   const p = (v: any) => ({ ...v, capabilities: sort(v.capabilities), deny: sort(v.deny), readPaths: sort(v.readPaths.map(scope)), writePaths: sort(v.writePaths.map(scope)) })
   const c = (v: any) => ({ ...v, cwd: scope(v.cwd), env: sort(v.env) })
   const normalized: any = {
     ...input, permissions: p(input.permissions), workspace: { ...input.workspace, allowedModes: sort(input.workspace.allowedModes) },
     commands: { ...input.commands, allow: input.commands.allow.map(c), deny: input.commands.deny.map(c) },
-    steps: input.steps.map((s: any) => ({ ...s, dependsOn: sort(s.dependsOn), permissions: p(s.permissions), commands: s.commands.map(c), outputs: [...s.outputs].sort((a, b) => a.name.localeCompare(b.name)), inputs: [...s.inputs].sort((a, b) => `${a.step}:${a.output}:${a.as}`.localeCompare(`${b.step}:${b.output}:${b.as}`)) })),
+    steps: input.steps.map((s: any) => ({ ...s, dependsOn: sort(s.dependsOn), permissions: p(s.permissions), commands: s.commands.map(c), outputs: [...s.outputs].sort((a, b) => compareCodePoint(a.name, b.name)), inputs: [...s.inputs].sort((a, b) => compareCodePoint(`${a.step}:${a.output}:${a.as}`, `${b.step}:${b.output}:${b.as}`)) })),
   }
   return { ...normalized, hash: workflowHash(normalized) }
 }
