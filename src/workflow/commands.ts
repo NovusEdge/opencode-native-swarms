@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto"
+import { relative, resolve } from "node:path"
 import type { CommandEvidence, CommandSpec, EnvironmentProvider, ProcessAdapter } from "./types"
 
 export type CommandSet = Readonly<{ default: "deny"; allow: readonly CommandSpec[]; deny: readonly CommandSpec[] }>
@@ -24,6 +25,7 @@ export type CommandRunOptions = Readonly<{
   environment: EnvironmentProvider
   repositoryRoot: string
   now: () => number
+  filesystem: Readonly<{ realpath(path: string): Promise<string> }>
   signal?: AbortSignal
   sessionID?: string
   runID?: string
@@ -49,7 +51,7 @@ export function compileCommandPolicy(input: CommandPolicyInput): CompiledCommand
   const installation = cloneSet(commandSet(input.installation))
   const layers = [{ name: "installation", set: installation }, ...(input.launch ? [{ name: "launch", set: cloneSet(input.launch) }] : []), { name: "workflow", set: cloneSet(input.workflow) }, ...(input.step ? [{ name: "step", set: cloneSet(input.step) }] : [])]
   const body = { installation, layers, maxTimeoutSeconds: input.maxTimeoutSeconds, maxOutputBytes: input.maxOutputBytes }
-  return { ...body, hash: commandHash(body) }
+  return Object.freeze({ ...body, layers: Object.freeze(layers), hash: commandHash(body) })
 }
 
 function malformed(command: CommandSpec): string | undefined {
@@ -65,9 +67,10 @@ function floorDenied(command: CommandSpec): string | undefined {
   const exe = basename(command.executable)
   const args = command.argv.map((arg) => arg.toLowerCase())
   if (FLOOR_EXECUTABLES.has(exe)) return "Executable is blocked by the installation deny floor"
-  if (exe === "git" && (args[0] === "push" || args[0] === "tag" && args.includes("--force"))) return "Git remote mutation is blocked by the installation deny floor"
-  if (["npm", "pnpm", "yarn", "bun", "cargo", "gem", "dotnet"].includes(exe) && args.includes("publish")) return "Package publication is blocked by the installation deny floor"
-  if (exe === "gh" && args[0] === "release") return "Release operations are blocked by the installation deny floor"
+  if (exe === "git" && (["push", "merge", "pull", "fetch", "tag"].includes(args[0]) || args.includes("--force"))) return "Git remote or history mutation is blocked by the installation deny floor"
+  if (["npm", "pnpm", "yarn", "bun", "cargo", "gem", "dotnet", "poetry", "twine", "gradle", "mvn"].includes(exe) && (args.includes("publish") || args.includes("upload") || args.includes("deploy") || args.includes("release"))) return "Package publication is blocked by the installation deny floor"
+  if (exe === "gh" && (args[0] === "release" || (args[0] === "pr" && args[1] === "merge"))) return "Release or merge operations are blocked by the installation deny floor"
+  if (["aws", "gcloud", "az", "terraform", "kubectl", "docker", "podman"].includes(exe) && ["apply", "push", "publish", "deploy", "create", "delete", "update"].some((verb) => args.includes(verb))) return "External-write operation is blocked by the installation deny floor"
   return undefined
 }
 
@@ -90,9 +93,15 @@ export function evaluateCommand(policy: CompiledCommandPolicy, command: CommandR
 function deny(layer: string, rule: string, reason: string) { return { allowed: false as const, layer, rule, reason } }
 
 function bounded(value: string, maxBytes: number): { value: string; truncated: boolean } {
-  const bytes = new TextEncoder().encode(value)
-  if (bytes.byteLength <= maxBytes) return { value: value.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "�"), truncated: false }
-  return { value: new TextDecoder().decode(bytes.slice(0, maxBytes)).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "�"), truncated: true }
+  let output = "", used = 0, truncated = false
+  for (const char of value) {
+    const safe = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(char) ? "�" : char
+    const size = new TextEncoder().encode(safe).byteLength
+    if (used + size > maxBytes) { truncated = true; break }
+    output += safe; used += size
+  }
+  if (output.length < value.length) truncated = true
+  return { value: output, truncated }
 }
 
 export async function runApprovedCommand(options: CommandRunOptions, command: CommandRequest): Promise<CommandEvidence> {
@@ -103,7 +112,17 @@ export async function runApprovedCommand(options: CommandRunOptions, command: Co
     const decision = deny("path", "repository-root-relative", "Working directory escapes repository root")
     return { command, allowed: false, decision, policyHash: options.policy.hash, startedAt, finishedAt: new Date(options.now()).toISOString() }
   }
-  const containedCwd = command.cwd === "." ? options.repositoryRoot : `${options.repositoryRoot.replace(/[\\/]$/, "")}/${command.cwd}`
+  let containedCwd: string
+  try {
+    const rootReal = await options.filesystem.realpath(options.repositoryRoot)
+    const cwdReal = await options.filesystem.realpath(resolve(rootReal, command.cwd))
+    const escape = relative(rootReal, cwdReal)
+    if (escape === ".." || escape.startsWith("../") || escape.startsWith("/")) throw new Error("outside")
+    containedCwd = cwdReal
+  } catch {
+    const decision = deny("path", "repository-contained", "Working directory cannot be resolved within repository root")
+    return { command, allowed: false, decision, policyHash: options.policy.hash, startedAt, finishedAt: new Date(options.now()).toISOString() }
+  }
   const env: Record<string, string> = {}
   for (const name of command.env) {
     const value = options.environment.get(name)
@@ -115,13 +134,13 @@ export async function runApprovedCommand(options: CommandRunOptions, command: Co
   return { command, allowed: true, decision: evaluated.decision, containedCwd, startedAt, finishedAt: new Date(options.now()).toISOString(), exitCode: result.exitCode, stdout: stdout.value, stderr: stderr.value, timedOut: result.timedOut, outputLimited: result.outputLimited || stdout.truncated || stderr.truncated, policyHash: options.policy.hash }
 }
 
-export function bindWorkflowCommand(scope: Readonly<{ sessionID: string; runID: string; stepID: string; policy: CompiledCommandPolicy; process: ProcessAdapter; environment: EnvironmentProvider; repositoryRoot: string; now: () => number; approval?: Readonly<{ required: boolean; token?: string; consume: (token: string, policyHash: string, commandHash: string) => boolean }> }>) {
+export function bindWorkflowCommand(scope: Readonly<{ sessionID: string; runID: string; stepID: string; policy: CompiledCommandPolicy; process: ProcessAdapter; environment: EnvironmentProvider; filesystem: Readonly<{ realpath(path: string): Promise<string> }>; repositoryRoot: string; now: () => number; approval?: Readonly<{ required: boolean; token?: string; consume: (token: string, policyHash: string, commandHash: string) => boolean }> }>) {
   return async (input: Readonly<{ sessionID: string; runID: string; stepID: string; command: CommandSpec; approvalToken?: string; signal?: AbortSignal }>) => {
     if (input.sessionID !== scope.sessionID || input.runID !== scope.runID || input.stepID !== scope.stepID) throw new Error("workflow_command scope mismatch")
     const required = scope.approval?.required ?? false
     const hash = commandHash(input.command)
     if (required && (!input.approvalToken || !scope.approval?.consume(input.approvalToken, scope.policy.hash, hash))) throw new Error("invalid or already consumed approval token")
-    return runApprovedCommand({ policy: scope.policy, process: scope.process, environment: scope.environment, repositoryRoot: scope.repositoryRoot, now: scope.now, signal: input.signal, sessionID: scope.sessionID, runID: scope.runID, stepID: scope.stepID }, input.command)
+    return runApprovedCommand({ policy: scope.policy, process: scope.process, environment: scope.environment, filesystem: scope.filesystem, repositoryRoot: scope.repositoryRoot, now: scope.now, signal: input.signal, sessionID: scope.sessionID, runID: scope.runID, stepID: scope.stepID }, input.command)
   }
 }
 export const createWorkflowCommandTool = bindWorkflowCommand

@@ -6,7 +6,8 @@ const command = (argv: string[] = ["check"]): CommandSpec => ({ executable: "bun
 const sets = (allow: CommandSpec[], deny: CommandSpec[] = []) => ({ default: "deny" as const, allow, deny })
 const policy = (c = command()) => compileCommandPolicy({ installation: sets([c]), workflow: sets([c]), step: sets([c]), maxTimeoutSeconds: 2, maxOutputBytes: 8 })
 const env = { get: (name: string) => name === "PATH" ? "/bin" : undefined, homeDirectory: () => "/home/test" }
-const runOptions = (process: ProcessAdapter, p = policy()) => ({ policy: p, process, environment: env, repositoryRoot: "/repo", now: () => 0 })
+const filesystem = { realpath: async (path: string) => path }
+const runOptions = (process: ProcessAdapter, p = policy(), fs = filesystem) => ({ policy: p, process, environment: env, filesystem: fs, repositoryRoot: "/repo", now: () => 0 })
 
 describe("structured command policy", () => {
   test("allows exact argv and passes direct argv to the process adapter", async () => {
@@ -42,7 +43,7 @@ describe("structured command policy", () => {
   test("only the run-scoped workflow_command binding reaches the adapter", async () => {
     let calls = 0
     const process: ProcessAdapter = { run: async () => { calls++; return { stdout: "", stderr: "", exitCode: 0 } } }
-    const tool = bindWorkflowCommand({ sessionID: "s", runID: "r", stepID: "t", policy: policy(), process, environment: env, repositoryRoot: "/repo", now: () => 0 })
+    const tool = bindWorkflowCommand({ sessionID: "s", runID: "r", stepID: "t", policy: policy(), process, environment: env, filesystem, repositoryRoot: "/repo", now: () => 0 })
     await tool({ sessionID: "s", runID: "r", stepID: "t", command: command() })
     expect(calls).toBe(1)
     expect(tool({ sessionID: "other", runID: "r", stepID: "t", command: command() })).rejects.toThrow("scope mismatch")
@@ -67,12 +68,41 @@ describe("structured command policy", () => {
     expect(() => (p.installation.allow as CommandSpec[]).push(command())).toThrow()
     expect(p.hash).toBe(originalHash)
     expect(evaluateCommand(p, push).decision.allowed).toBe(false)
+    expect(() => ((p as any).layers = [])).toThrow()
+    expect(() => ((p as any).installation = sets([command()]))).toThrow()
+  })
+
+  test("blocks merges, release tooling, and external writes", () => {
+    const cases: Array<[string, string[]]> = [["git", ["merge"]], ["gh", ["pr", "merge"]], ["docker", ["push"]], ["aws", ["deploy"]], ["twine", ["upload"]]]
+    for (const [executable, argv] of cases) {
+      const c = { ...command(argv), executable }
+      const p = compileCommandPolicy({ installation: sets([c]), workflow: sets([c]), step: sets([c]), maxTimeoutSeconds: 2, maxOutputBytes: 8 })
+      expect(evaluateCommand(p, c).decision.allowed).toBe(false)
+    }
+  })
+
+  test("rejects symlink-resolved cwd outside repository", async () => {
+    const process: ProcessAdapter = { run: async () => ({ stdout: "", stderr: "", exitCode: 0 }) }
+    const fs = { realpath: async (path: string) => path === "/repo/tools" ? "/tmp/outside" : path }
+    const c = { ...command(), cwd: "tools" }
+    const p = policy(c)
+    const evidence = await runApprovedCommand(runOptions(process, p, fs), c)
+    expect(evidence.allowed).toBe(false)
+    expect(evidence.decision?.rule).toBe("repository-contained")
+  })
+
+  test("keeps sanitized evidence within byte cap", async () => {
+    const process: ProcessAdapter = { run: async () => ({ stdout: "\0", stderr: "\0", exitCode: 0 }) }
+    const p = compileCommandPolicy({ installation: sets([command()]), workflow: sets([command()]), step: sets([command()]), maxTimeoutSeconds: 2, maxOutputBytes: 1 })
+    const evidence = await runApprovedCommand(runOptions(process, p), command())
+    expect(new TextEncoder().encode(evidence.stdout ?? "").byteLength).toBeLessThanOrEqual(1)
+    expect(new TextEncoder().encode(evidence.stderr ?? "").byteLength).toBeLessThanOrEqual(1)
   })
 
   test("requires and consumes a hash-bound approval token", async () => {
     let consumed = false
     const process: ProcessAdapter = { run: async () => ({ stdout: "", stderr: "", exitCode: 0 }) }
-    const tool = bindWorkflowCommand({ sessionID: "s", runID: "r", stepID: "t", policy: policy(), process, environment: env, repositoryRoot: "/repo", now: () => 0, approval: { required: true, consume: (token, hash, commandHash) => { consumed = token === "ok" && hash.length === 64 && commandHash.length === 64; return consumed } } })
+    const tool = bindWorkflowCommand({ sessionID: "s", runID: "r", stepID: "t", policy: policy(), process, environment: env, filesystem, repositoryRoot: "/repo", now: () => 0, approval: { required: true, consume: (token, hash, commandHash) => { consumed = token === "ok" && hash.length === 64 && commandHash.length === 64; return consumed } } })
     expect(tool({ sessionID: "s", runID: "r", stepID: "t", command: command() })).rejects.toThrow("approval token")
     await tool({ sessionID: "s", runID: "r", stepID: "t", command: command(), approvalToken: "ok" })
     expect(consumed).toBe(true)
