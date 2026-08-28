@@ -34,3 +34,7 @@ now pass; typecheck passes.
 
 The final cancellation assertion verifies that a late-created session leaves no
 runtime binding after cancellation.
+
+The latest red-to-green round added blocked-create reservation cleanup and a
+mandatory authoritative approval-consumer test. Final verification: 9 runtime
+tests passed and typecheck passed.

@@ -157,6 +157,7 @@ export function createWorkflowRuntime(options: RuntimeOptions): WorkflowRuntime 
   }
   const launch = async (plan: WorkflowPlan, approval: LaunchApproval) => {
     if (!options.registerToolHook) throw new Error("Host tool enforcement unavailable")
+    if (!options.consumeApproval) throw new Error("Authoritative approval consumer unavailable")
     if (!agentMatches(options.agent) || options.agent?.name !== RESERVED_AGENT) throw new Error("Reserved workflow agent is unavailable or mismatched")
     if (approval.workflowHash !== plan.workflowHash || approval.policyHash !== plan.policyHash || !approval.singleUse || consumedApprovals.has(approval.token)) throw new Error("Launch approval does not match plan")
     const tokenHash = createHash("sha256").update(approval.token).digest("hex")
