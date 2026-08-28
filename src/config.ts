@@ -7,10 +7,12 @@ export function applyNativeSwarmsConfig(config: Config): void {
 
   for (const [name, definition] of Object.entries(nativeSwarmAgents)) {
     // The plugin's v1 Config type predates OpenCode's generalized permission map.
-    if (!(name in config.agent)) config.agent[name] = definition as NonNullable<Config["agent"]>[string]
+    if (!(name in config.agent)) {
+      config.agent[name] = structuredClone(definition) as NonNullable<Config["agent"]>[string]
+    }
   }
 
   for (const [name, definition] of Object.entries(nativeSwarmCommands)) {
-    if (!(name in config.command)) config.command[name] = definition
+    if (!(name in config.command)) config.command[name] = structuredClone(definition)
   }
 }

@@ -31,31 +31,21 @@ const localInspectionPermissions = {
   skill: "allow",
 } as const
 
-const readOnlyGitPermissions = {
-  "*": "deny",
-  "git status*": "allow",
-  "git diff*": "allow",
-  "git log*": "allow",
-  "git show*": "allow",
-  "git branch --show-current*": "allow",
-  "git rev-parse*": "allow",
-} as const
-
 const testCommandPermissions = {
-  ...readOnlyGitPermissions,
-  "npm test*": "allow",
-  "npm run test*": "allow",
-  "npm run lint*": "allow",
-  "npm run typecheck*": "allow",
-  "pnpm test*": "allow",
-  "pnpm run test*": "allow",
-  "pnpm lint*": "allow",
-  "pnpm typecheck*": "allow",
-  "bun test*": "allow",
-  "pytest*": "allow",
-  "python -m pytest*": "allow",
-  "cargo test*": "allow",
-  "go test*": "allow",
+  "*": "deny",
+  "npm test": "allow",
+  "npm run test": "allow",
+  "npm run lint": "allow",
+  "npm run typecheck": "allow",
+  "pnpm test": "allow",
+  "pnpm run test": "allow",
+  "pnpm lint": "allow",
+  "pnpm typecheck": "allow",
+  "bun test": "allow",
+  pytest: "allow",
+  "python -m pytest": "allow",
+  "cargo test": "allow",
+  "go test ./...": "allow",
 } as const
 
 export const nativeSwarmAgents = {
@@ -122,7 +112,8 @@ Answer only the assigned question and stay inside its stated scope.
     permission: {
       "*": "deny",
       ...localInspectionPermissions,
-      bash: readOnlyGitPermissions,
+      bash: "deny",
+      swarm_git_inspect: "allow",
     },
     prompt: `# Swarm reviewer
 
@@ -133,7 +124,7 @@ Review the assigned change without editing it.
 - Treat missing tests or surface checks as verification gaps; do not claim they ran without output.
 - Distinguish defects, assumptions, open questions, and residual risks.
 - If no findings remain, say so and state the verification limits.
-- Use only the allowed read-only Git commands. Do not delegate, use the web, access external directories, or use external-service tools.`,
+- Use only \`swarm_git_inspect\` for Git state and diffs. Do not delegate, use the web, access external directories, or use external-service tools.`,
   },
   "swarm-tester": {
     description:
@@ -143,6 +134,7 @@ Review the assigned change without editing it.
     permission: {
       "*": "deny",
       ...localInspectionPermissions,
+      swarm_git_inspect: "allow",
       bash: testCommandPermissions,
     },
     prompt: `# Swarm tester
@@ -154,6 +146,7 @@ Run only the assigned narrow check in a repository the user already trusts.
 - Report the exact command, exit status, failures, and relevant output.
 - Do not install dependencies, update snapshots, apply fixes, or substitute a broader check.
 - Test scripts are project code, not a sandbox. Stop if the repository or requested command appears untrusted.
+- Use only \`swarm_git_inspect\` for Git state and diffs.
 - Do not edit, delegate, use the web, access external directories, or use external-service tools.`,
   },
 } satisfies Record<string, NativeAgentDefinition>

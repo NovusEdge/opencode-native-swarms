@@ -24,25 +24,53 @@ test("adds native swarm agents and command to an empty config", () => {
 })
 
 test("preserves colliding user definitions", () => {
-  const existingAgent = {
-    description: "User-owned director",
-    mode: "primary" as const,
-    prompt: "Keep this agent unchanged.",
-  }
+  const agentNames = [
+    "workflow-director",
+    "swarm-researcher",
+    "swarm-reviewer",
+    "swarm-tester",
+  ] as const
+  const existingAgents = Object.fromEntries(
+    agentNames.map((name) => [
+      name,
+      {
+        description: `User-owned ${name}`,
+        mode: "primary" as const,
+        prompt: "Keep this agent unchanged.",
+      },
+    ]),
+  )
   const existingCommand = {
     template: "Keep this command unchanged.",
     description: "User-owned command",
   }
   const config: Config = {
-    agent: { "workflow-director": existingAgent },
+    agent: existingAgents,
     command: { swarm: existingCommand },
   }
 
   applyNativeSwarmsConfig(config)
 
-  expect(config.agent?.["workflow-director"]).toBe(existingAgent)
+  for (const name of agentNames) {
+    expect(config.agent?.[name]).toBe(existingAgents[name])
+  }
   expect(config.command?.swarm).toBe(existingCommand)
   expect(Object.keys(config.agent ?? {})).toHaveLength(4)
+})
+
+test("creates isolated definitions for each config application", () => {
+  const first: Config = {}
+  const second: Config = {}
+
+  applyNativeSwarmsConfig(first)
+  const firstDirector = first.agent?.["workflow-director"]
+  const firstPermission = permissionsFor(first, "workflow-director")
+  firstPermission.question = "deny"
+
+  applyNativeSwarmsConfig(second)
+
+  expect(second.agent?.["workflow-director"]).not.toBe(firstDirector)
+  expect(permissionsFor(second, "workflow-director").question).toBe("allow")
 })
 
 test("limits director delegation to the three swarm workers", () => {
@@ -71,51 +99,40 @@ test("gives the researcher web access without shell or delegation", () => {
   expect(permission).not.toHaveProperty("task")
 })
 
-test("limits the reviewer to approved read-only git commands", () => {
+test("gives the reviewer hardened git inspection without shell access", () => {
   const config: Config = {}
   applyNativeSwarmsConfig(config)
 
-  const bash = permissionsFor(config, "swarm-reviewer").bash
+  const permission = permissionsFor(config, "swarm-reviewer")
 
-  expect(bash).toEqual({
-    "*": "deny",
-    "git status*": "allow",
-    "git diff*": "allow",
-    "git log*": "allow",
-    "git show*": "allow",
-    "git branch --show-current*": "allow",
-    "git rev-parse*": "allow",
-  })
+  expect(permission.swarm_git_inspect).toBe("allow")
+  expect(permission.bash).toBe("deny")
 })
 
-test("limits the tester to approved git and test command families", () => {
+test("limits the tester shell to approved test command families", () => {
   const config: Config = {}
   applyNativeSwarmsConfig(config)
 
-  const bash = permissionsFor(config, "swarm-tester").bash as Record<string, string>
+  const permission = permissionsFor(config, "swarm-tester")
+  const bash = permission.bash as Record<string, string>
 
-  expect(Object.keys(bash)).toHaveLength(20)
+  expect(permission.swarm_git_inspect).toBe("allow")
+  expect(Object.keys(bash)).toHaveLength(14)
   expect(bash).toEqual({
     "*": "deny",
-    "git status*": "allow",
-    "git diff*": "allow",
-    "git log*": "allow",
-    "git show*": "allow",
-    "git branch --show-current*": "allow",
-    "git rev-parse*": "allow",
-    "npm test*": "allow",
-    "npm run test*": "allow",
-    "npm run lint*": "allow",
-    "npm run typecheck*": "allow",
-    "pnpm test*": "allow",
-    "pnpm run test*": "allow",
-    "pnpm lint*": "allow",
-    "pnpm typecheck*": "allow",
-    "bun test*": "allow",
-    "pytest*": "allow",
-    "python -m pytest*": "allow",
-    "cargo test*": "allow",
-    "go test*": "allow",
+    "npm test": "allow",
+    "npm run test": "allow",
+    "npm run lint": "allow",
+    "npm run typecheck": "allow",
+    "pnpm test": "allow",
+    "pnpm run test": "allow",
+    "pnpm lint": "allow",
+    "pnpm typecheck": "allow",
+    "bun test": "allow",
+    "pytest": "allow",
+    "python -m pytest": "allow",
+    "cargo test": "allow",
+    "go test ./...": "allow",
   })
 })
 
@@ -146,6 +163,16 @@ test("inherits models from OpenCode configuration", () => {
   for (const agent of Object.values(config.agent ?? {})) {
     expect(agent).not.toHaveProperty("model")
   }
+  expect(config.command?.swarm).not.toHaveProperty("model")
+})
+
+test("keeps every swarm agent deny-by-default", () => {
+  const config: Config = {}
+  applyNativeSwarmsConfig(config)
+
+  for (const agent of Object.keys(config.agent ?? {})) {
+    expect(permissionsFor(config, agent)["*"]).toBe("deny")
+  }
 })
 
 test("exports a plugin hook that applies the native swarm config", async () => {
@@ -158,4 +185,5 @@ test("exports a plugin hook that applies the native swarm config", async () => {
   expect(config.agent?.["swarm-researcher"]?.mode).toBe("subagent")
   expect(config.command?.swarm?.agent).toBe("workflow-director")
   expect(config.command?.swarm?.subtask).toBe(false)
+  expect(hooks.tool?.swarm_git_inspect).toBeDefined()
 })

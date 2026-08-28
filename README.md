@@ -40,15 +40,18 @@ and the `swarm` command.
 | --- | --- | --- |
 | `workflow-director` | primary | Reads and searches locally, asks questions, and delegates only to the three workers below |
 | `swarm-researcher` | subagent | Reads and searches locally and consults web sources; no shell or delegation |
-| `swarm-reviewer` | subagent | Reads locally and runs six read-only Git command families |
-| `swarm-tester` | subagent | Reads locally and runs approved Git, test, lint, and type-check command families |
+| `swarm-reviewer` | subagent | Reads locally and uses the plugin's hardened, non-shell Git inspection tool |
+| `swarm-tester` | subagent | Uses hardened Git inspection and approved test, lint, and type-check command families |
 | `/swarm` | command | Starts `workflow-director` for the supplied objective |
 
 Every agent is deny-by-default. Reads of `.env`, environment-file variants,
 and `secrets/**` are denied, with example environment files explicitly allowed.
-The reviewer and tester deny all shell commands before enumerating their small
-allowlists. Test scripts still execute project code, so use the tester only in
-repositories you already trust.
+The reviewer has no shell access. Git inspection is implemented as fixed
+argument-array operations: arbitrary paths and flags are not accepted,
+external diff and text-conversion drivers are disabled, and protected paths
+are excluded from patch output. The tester's shell permission denies everything
+before enumerating its small test-command allowlist. Test scripts still execute
+project code, so use the tester only in repositories you already trust.
 
 If your configuration already defines one of these names, your definition wins
 and the plugin leaves that object unchanged.
