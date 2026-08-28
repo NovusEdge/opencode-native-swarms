@@ -19,7 +19,10 @@
   "scripts": {
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "check": "bun test && tsc --noEmit"
+    "check": "bun test && tsc --noEmit",
+    "hooks:install": "uvx --from pre-commit==4.6.2 pre-commit install --install-hooks",
+    "hooks:run": "uvx --from pre-commit==4.6.2 pre-commit run --all-files",
+    "package:check": "bun scripts/check-package.ts"
   },
   "devDependencies": {
     "@opencode-ai/plugin": "1.18.25",

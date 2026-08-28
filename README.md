@@ -1,5 +1,7 @@
 # OpenCode Native Swarms
 
+[![CI](https://github.com/NovusEdge/opencode-native-swarms/actions/workflows/ci.yml/badge.svg)](https://github.com/NovusEdge/opencode-native-swarms/actions/workflows/ci.yml)
+
 Permission-scoped native background-agent workflows for OpenCode. The plugin
 adds a primary workflow director, three bounded workers, and a `/swarm` command
 without pinning a model or taking over identically named user configuration.
@@ -14,6 +16,7 @@ pushes, or external-service writes.
 - Native background subagents enabled with
   `OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true`
 - Bun for local development
+- [uv](https://docs.astral.sh/uv/getting-started/installation/) for pre-commit
 
 The plugin omits every agent's `model` field. OpenCode therefore uses the
 models selected by your own configuration.
@@ -85,7 +88,19 @@ bun run check
 ```
 
 `bun run check` runs the behavior tests and strict TypeScript checking. To
-inspect the fully resolved configuration without invoking a model:
+install the repository's pre-commit hooks with `uv`, run:
+
+```bash
+bun run hooks:install
+```
+
+The hooks check common file hygiene, scan staged changes for secrets with
+Gitleaks, and run the Bun test and type-check suite. Run the same checks across
+the full checkout at any time with `bun run hooks:run`. CI repeats those checks,
+validates the published package contents, and runs a full repository Gitleaks
+scan.
+
+To inspect the fully resolved configuration without invoking a model:
 
 ```bash
 OPENCODE_CONFIG_CONTENT='{"plugin":["/absolute/path/to/opencode-native-swarms"]}' \
