@@ -10,7 +10,7 @@ export type PlannerInput = Readonly<{
   policy: EffectivePolicy
   commandPolicy: CompiledCommandPolicy
   installation?: Readonly<{ maxConcurrency?: number; maxTimeoutSeconds?: number; maxOutputBytes?: number; maxChildAgents?: number; protectedPaths?: readonly string[] }>
-  workspacePlans?: Readonly<Record<string, Readonly<{ path: string; repositoryId?: string; mode?: string; repositoryRoot?: string; ownership?: string }>>>
+  workspacePlans?: Readonly<Record<string, Readonly<{ path: string; repositoryId?: string; mode?: string; repositoryRoot?: string; ownership?: string; canonicalPath?: string; canonicalRoot?: string }>>>
   writerScopes?: Readonly<Record<string, readonly string[]>>
   handoffs?: Readonly<Record<string, WriterHandoff>>
   repositoryId?: string
@@ -50,7 +50,7 @@ export function planWorkflow(input: PlannerInput): WorkflowPlan {
     for (const capability of step.permissions.capabilities) if (!decideCapability(policy, capability).allowed) throw new Error(`Capability unavailable: ${capability}`)
     for (const p of step.permissions.readPaths) if (!decidePath(policy, "read", p).allowed) throw new Error(`Read scope outside policy: ${p}`)
     for (const p of step.permissions.writePaths) if (!decidePath(policy, "write", p).allowed) throw new Error(`Write scope outside policy: ${p}`)
-    if (input.workspacePlans) { const workspace = input.workspacePlans[step.id]; if (!workspace?.path || !workspace.mode || !workspace.repositoryId || !workspace.repositoryRoot || workspace.ownership !== "opencode-native-swarms") throw new Error(`Workspace evidence unavailable: ${step.id}`); if (workspace.mode !== step.workspace.mode || !["read-only", "current", "worktree", "existing"].includes(workspace.mode)) throw new Error(`Workspace mode mismatch: ${step.id}`); if (!workspace.path.startsWith("/") || !workspace.repositoryRoot.startsWith("/") || workspace.path.includes("..") || workspace.repositoryRoot.includes("..")) throw new Error(`Workspace containment mismatch: ${step.id}`); if (input.repositoryId && workspace.repositoryId !== input.repositoryId) throw new Error(`Workspace repository identity mismatch: ${step.id}`) }
+    if (input.workspacePlans) { const workspace = input.workspacePlans[step.id]; if (!workspace?.path || !workspace.mode || !workspace.repositoryId || !workspace.repositoryRoot || !workspace.canonicalPath || !workspace.canonicalRoot || workspace.ownership !== "opencode-native-swarms") throw new Error(`Workspace evidence unavailable: ${step.id}`); if (workspace.mode !== step.workspace.mode || !["read-only", "current", "worktree", "existing"].includes(workspace.mode)) throw new Error(`Workspace mode mismatch: ${step.id}`); if (!workspace.path.startsWith("/") || !workspace.repositoryRoot.startsWith("/") || workspace.path.includes("..") || workspace.repositoryRoot.includes("..") || workspace.canonicalPath !== workspace.path || workspace.canonicalRoot !== workspace.repositoryRoot || !(workspace.canonicalPath === workspace.canonicalRoot || workspace.canonicalPath.startsWith(`${workspace.canonicalRoot}/`))) throw new Error(`Workspace containment mismatch: ${step.id}`); if (input.repositoryId && workspace.repositoryId !== input.repositoryId) throw new Error(`Workspace repository identity mismatch: ${step.id}`) }
   }
   const indegree = new Map<string, number>(), children = new Map<string, string[]>()
   for (const step of definition.steps) {

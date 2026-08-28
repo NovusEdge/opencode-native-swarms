@@ -58,3 +58,7 @@ persisted expectations, preserving matching revalidation facts.
 Acceptance hardening adds typed persisted evidence, validates raw records
 before redaction, permits only legal failed-to-stale transitions, and requires
 canonical workspace path/root/identity/ownership evidence during planning.
+
+Workspace containment is now strict: planner workspace evidence must include
+matching canonical root/path proofs, and rejects outside-root and symlink-escape
+resolutions while preserving identity and ownership requirements.
