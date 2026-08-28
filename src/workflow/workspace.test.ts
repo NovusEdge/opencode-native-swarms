@@ -43,6 +43,8 @@ describe("workspace safety", () => {
     await expect(resolveWorkspace({ mode: "read-only", repositoryRoot: "/repo", repositoryId: "repo-1", path: "/outside" }, { filesystem: fs(), git: git() })).rejects.toThrow(/path/)
     const guarded = { ...fs(), beforeWrite: async () => "/repo/.env" }
     await expect(assertWriteBoundary("/repo/src/a.ts", "/repo", { filesystem: guarded, git: git() }, [".env"], ["src/a.ts"])).rejects.toThrow(/Protected/)
+    const escaping = { ...fs({ "/repo/link": "/outside" }), beforeWrite: async () => "/repo/link" }
+    await expect(assertWriteBoundary("/repo/src/a.ts", "/repo", { filesystem: escaping, git: git() }, [], ["src/a.ts"])).rejects.toThrow(/containment/)
   })
 
   test("commit requires fresh staged evidence and invokes adapter at boundary", async () => {
@@ -58,5 +60,7 @@ describe("workspace safety", () => {
     const workspace = { mode: "current" as const, path: "/repo", repositoryRoot: "/repo", repositoryId: "repo-1", managed: false }
     const result = await verifyWriterHandoff({ workspaceIdentity: "repo-1", expectedTree: "tree-1" }, workspace, { filesystem: fs(), git: git({ status: async () => ({ clean: true, tree: "tree-2" }) }) })
     expect(result.allowed).toBe(false)
+    const identityMismatch = await verifyWriterHandoff({ workspaceIdentity: "repo-1", expectedTree: "tree-1" }, { ...workspace, repositoryId: "repo-2" }, { filesystem: fs(), git: git({ status: async () => ({ clean: true, tree: "tree-1" }) }) })
+    expect(identityMismatch.allowed).toBe(false)
   })
 })

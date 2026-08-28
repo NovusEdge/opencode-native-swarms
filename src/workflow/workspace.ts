@@ -163,8 +163,10 @@ export async function assertWriteBoundary(path: string, repositoryRoot: string, 
   const boundary = (adapters.filesystem as any).beforeWrite
   if (typeof boundary !== "function") throw new Error("Write boundary adapter unavailable")
   const checked = await boundary(resolved, root)
-  if (typeof checked === "string" && !contained(root, checked)) throw new Error("Write boundary containment check failed")
-  const finalTarget = checked ?? resolved
+  const checkedPath = typeof checked === "string" ? checked : resolved
+  // The adapter may return a newly-created path; resolve it again at the final syscall boundary.
+  const finalTarget = await adapters.filesystem.realpath(checkedPath)
+  if (!contained(root, finalTarget)) throw new Error("Write boundary containment check failed")
   const finalRelative = finalTarget.slice(root.length).replace(/^\//, "") || "."
   for (const scope of protectedPaths) {
     try { if (badPath(scope) || picomatch(scope, { dot: true, nocase: false })(finalRelative)) throw new Error("Protected write target") } catch (error) { if (error instanceof Error && error.message === "Protected write target") throw error; throw new Error("Malformed protected path scope") }
@@ -208,7 +210,7 @@ export async function commitWorkspace(input: Readonly<{ workspace: WorkspaceResu
 export async function verifyWriterHandoff(prior: WriterHandoff, workspace: WorkspaceResult, adapters: WorkspaceAdapters): Promise<Readonly<{ allowed: boolean; reason?: string }>> {
   if (!prior.workspaceIdentity || (!prior.expectedTree && !prior.expectedCommit) || typeof adapters.git.repositoryIdentity !== "function" || typeof adapters.git.status !== "function") return { allowed: false, reason: "Incomplete handoff evidence" }
   const actualIdentity = await identity(adapters.git, workspace.path)
-  if (actualIdentity !== prior.workspaceIdentity) return { allowed: false, reason: "Handoff workspace identity mismatch" }
+  if (actualIdentity !== prior.workspaceIdentity || actualIdentity !== workspace.repositoryId) return { allowed: false, reason: "Handoff workspace identity mismatch" }
   const current = await status(adapters.git, workspace.path)
   if (prior.expectedTree && current.tree !== prior.expectedTree) return { allowed: false, reason: "Handoff tree mismatch" }
   if (prior.expectedCommit && current.commit !== prior.expectedCommit) return { allowed: false, reason: "Handoff commit mismatch" }

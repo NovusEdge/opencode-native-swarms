@@ -31,3 +31,8 @@ The final fix adds an executable `commitWorkspace` boundary: fresh Git status,
 branch, identity, staged paths, containment, protected-target, and write-boundary
 checks all run immediately before the injected commit operation. Sequential
 handoffs can also be verified against fresh identity/tree/commit state.
+
+The final boundary fix re-realpaths the target returned by `beforeWrite` and
+rechecks containment and protected scopes immediately before mutation. Handoff
+identity is bound to the current workspace repository identity as well as the
+recorded handoff identity.
