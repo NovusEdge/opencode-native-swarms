@@ -42,3 +42,7 @@ Final hardening adds lock-coherent stale persistence and resume gating,
 identity/revision/policy guards for step transitions, lifecycle evidence
 events, explicit corrupt-copy errors, and safe path validation that supports
 spaces and non-ASCII repository/XDG paths.
+
+Final review closure also records workflow transition evidence and rejects
+attempts to mark terminal runs stale, while retaining lock-serialized state
+updates and expected metadata guards.
