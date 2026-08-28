@@ -8,7 +8,11 @@ import {
   type OutputType,
   type StepState,
   type WorkflowState,
+  type WorkflowDefinition,
 } from "./types"
+
+type WorkflowHashIsRequired = WorkflowDefinition extends { readonly hash: string } ? true : false
+const workflowHashIsRequired: WorkflowHashIsRequired = true
 
 describe("workflow contracts", () => {
   test("exposes exactly the v0.2 capability vocabulary", () => {
@@ -35,5 +39,6 @@ describe("workflow contracts", () => {
     expect([workflowState, stepState, outputType]).toEqual(["draft", "queued", "json"])
     expect(WORKFLOW_STATES).not.toContain("paused")
     expect(STEP_STATES).not.toContain("paused")
+    expect(workflowHashIsRequired).toBe(true)
   })
 })

@@ -66,7 +66,7 @@ export type WorkflowDefinition = Readonly<{
   workspace: Readonly<{ allowedModes: readonly WorkspaceMode[]; defaultMode: WorkspaceMode }>
   commands: Readonly<{ default: "deny"; allow: readonly CommandSpec[]; deny: readonly CommandSpec[] }>
   steps: readonly WorkflowStep[]
-  hash?: string
+  hash: string
 }>
 
 export type OutputValue = Readonly<{ type: OutputType; value: unknown }>
