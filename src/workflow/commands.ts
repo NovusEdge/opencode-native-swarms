@@ -49,7 +49,7 @@ function commandSet(value: CommandSet | Readonly<{ commands?: CommandSet }>): Co
 
 export function compileCommandPolicy(input: CommandPolicyInput): CompiledCommandPolicy {
   const installation = cloneSet(commandSet(input.installation))
-  const layers = [{ name: "installation", set: installation }, ...(input.launch ? [{ name: "launch", set: cloneSet(input.launch) }] : []), { name: "workflow", set: cloneSet(input.workflow) }, ...(input.step ? [{ name: "step", set: cloneSet(input.step) }] : [])]
+  const layers = [Object.freeze({ name: "installation", set: installation }), ...(input.launch ? [Object.freeze({ name: "launch", set: cloneSet(input.launch) })] : []), Object.freeze({ name: "workflow", set: cloneSet(input.workflow) }), ...(input.step ? [Object.freeze({ name: "step", set: cloneSet(input.step) })] : [])]
   const body = { installation, layers, maxTimeoutSeconds: input.maxTimeoutSeconds, maxOutputBytes: input.maxOutputBytes }
   return Object.freeze({ ...body, layers: Object.freeze(layers), hash: commandHash(body) })
 }
@@ -66,10 +66,18 @@ function malformed(command: CommandSpec): string | undefined {
 function floorDenied(command: CommandSpec): string | undefined {
   const exe = basename(command.executable)
   const args = command.argv.map((arg) => arg.toLowerCase())
+  const values = new Set(["-c", "--config", "--git-dir", "--work-tree", "-C", "--repo", "--hostname", "--org"])
+  const verbs: string[] = []
+  for (let i = 0; i < args.length; i++) {
+    if (values.has(args[i])) { i++; continue }
+    if (args[i].startsWith("--") && args[i].includes("=")) continue
+    if (args[i].startsWith("-") && args[i] !== "--force") continue
+    verbs.push(args[i])
+  }
   if (FLOOR_EXECUTABLES.has(exe)) return "Executable is blocked by the installation deny floor"
-  if (exe === "git" && (["push", "merge", "pull", "fetch", "tag"].includes(args[0]) || args.includes("--force"))) return "Git remote or history mutation is blocked by the installation deny floor"
+  if (exe === "git" && (["push", "merge", "pull", "fetch", "tag"].includes(verbs[0]) || args.includes("--force"))) return "Git remote or history mutation is blocked by the installation deny floor"
   if (["npm", "pnpm", "yarn", "bun", "cargo", "gem", "dotnet", "poetry", "twine", "gradle", "mvn"].includes(exe) && (args.includes("publish") || args.includes("upload") || args.includes("deploy") || args.includes("release"))) return "Package publication is blocked by the installation deny floor"
-  if (exe === "gh" && (args[0] === "release" || (args[0] === "pr" && args[1] === "merge"))) return "Release or merge operations are blocked by the installation deny floor"
+  if (exe === "gh" && (verbs[0] === "release" || (verbs[0] === "pr" && verbs[1] === "merge"))) return "Release or merge operations are blocked by the installation deny floor"
   if (["aws", "gcloud", "az", "terraform", "kubectl", "docker", "podman"].includes(exe) && ["apply", "push", "publish", "deploy", "create", "delete", "update"].some((verb) => args.includes(verb))) return "External-write operation is blocked by the installation deny floor"
   return undefined
 }

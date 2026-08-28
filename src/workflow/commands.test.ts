@@ -70,11 +70,21 @@ describe("structured command policy", () => {
     expect(evaluateCommand(p, push).decision.allowed).toBe(false)
     expect(() => ((p as any).layers = [])).toThrow()
     expect(() => ((p as any).installation = sets([command()]))).toThrow()
+    expect(() => ((p.layers[0] as any).set = sets([command()]))).toThrow()
+    expect(() => ((p.layers[0] as any).name = "changed")).toThrow()
   })
 
   test("blocks merges, release tooling, and external writes", () => {
     const cases: Array<[string, string[]]> = [["git", ["merge"]], ["gh", ["pr", "merge"]], ["docker", ["push"]], ["aws", ["deploy"]], ["twine", ["upload"]]]
     for (const [executable, argv] of cases) {
+      const c = { ...command(argv), executable }
+      const p = compileCommandPolicy({ installation: sets([c]), workflow: sets([c]), step: sets([c]), maxTimeoutSeconds: 2, maxOutputBytes: 8 })
+      expect(evaluateCommand(p, c).decision.allowed).toBe(false)
+    }
+  })
+
+  test("deny floor recognizes option-prefixed operations", () => {
+    for (const [executable, argv] of [["git", ["-C", "repo", "push"]], ["git", ["--git-dir=x", "merge"]], ["gh", ["--repo", "org/repo", "pr", "merge"]], ["npm", ["--registry", "x", "publish"]] ] as Array<[string, string[]]>) {
       const c = { ...command(argv), executable }
       const p = compileCommandPolicy({ installation: sets([c]), workflow: sets([c]), step: sets([c]), maxTimeoutSeconds: 2, maxOutputBytes: 8 })
       expect(evaluateCommand(p, c).decision.allowed).toBe(false)
