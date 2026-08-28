@@ -73,6 +73,10 @@ export type OutputValue = Readonly<{ type: OutputType; value: unknown }>
 export type CommandEvidence = Readonly<{
   command: CommandSpec
   allowed: boolean
+  decision?: PolicyDecision
+  containedCwd?: string
+  startedAt?: string
+  finishedAt?: string
   exitCode?: number
   stdout?: string
   stderr?: string
