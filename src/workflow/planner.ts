@@ -1,14 +1,14 @@
 import { createHash } from "node:crypto"
 import picomatch from "picomatch"
 import { decideCapability, decidePath } from "./policy"
-import { compileCommandPolicy, evaluateCommand, type CompiledCommandPolicy } from "./commands"
+import { evaluateCommand, type CompiledCommandPolicy } from "./commands"
 import { checkWriterOverlap, type WriterHandoff } from "./workspace"
 import type { EffectivePolicy, FailurePolicy, StepState, WorkflowDefinition, WorkflowPlan, WorkflowState, WorkflowStep } from "./types"
 
 export type PlannerInput = Readonly<{
   definition: WorkflowDefinition
   policy: EffectivePolicy
-  commandPolicy?: CompiledCommandPolicy
+  commandPolicy: CompiledCommandPolicy
   installation?: Readonly<{ maxConcurrency?: number; maxTimeoutSeconds?: number; maxOutputBytes?: number; maxChildAgents?: number; protectedPaths?: readonly string[] }>
   workspacePlans?: Readonly<Record<string, Readonly<{ path: string; repositoryId?: string; mode?: string }>>>
   writerScopes?: Readonly<Record<string, readonly string[]>>
@@ -31,13 +31,13 @@ function ensureScope(pattern: string, label: string) {
 
 export function planWorkflow(input: PlannerInput): WorkflowPlan {
   const { definition, policy } = input
-  const commandPolicy = input.commandPolicy ?? compileCommandPolicy({ installation: definition.commands, workflow: definition.commands, step: definition.commands, maxTimeoutSeconds: input.installation?.maxTimeoutSeconds ?? Number.MAX_SAFE_INTEGER, maxOutputBytes: input.installation?.maxOutputBytes ?? Number.MAX_SAFE_INTEGER })
+  const commandPolicy = input.commandPolicy
   const byId = new Map<string, WorkflowStep>()
   for (const step of definition.steps) {
     if (byId.has(step.id)) throw new Error(`Duplicate step id: ${step.id}`)
     byId.set(step.id, step)
     if (!definition.workspace.allowedModes.includes(step.workspace.mode)) throw new Error(`Workspace mode is not allowed: ${step.id}`)
-    for (const p of [...step.permissions.readPaths, ...step.permissions.writePaths]) { ensureScope(p, `step ${step.id}`); if (!decidePath(policy, step.permissions.writePaths.includes(p) ? "write" : "read", p).allowed) throw new Error(`Step scope outside policy: ${p}`) }
+    for (const p of [...step.permissions.readPaths, ...step.permissions.writePaths]) { ensureScope(p, `step ${step.id}`); if ((input.installation?.protectedPaths ?? []).some((x) => picomatch(x, { dot: true })(p))) throw new Error(`Protected scope: ${p}`); if (!decidePath(policy, step.permissions.writePaths.includes(p) ? "write" : "read", p).allowed) throw new Error(`Step scope outside policy: ${p}`) }
     for (const p of [...definition.permissions.readPaths, ...definition.permissions.writePaths]) { ensureScope(p, "workflow"); if (!decidePath(policy, definition.permissions.writePaths.includes(p) ? "write" : "read", p).allowed) throw new Error(`Workflow scope outside policy: ${p}`) }
     for (const command of step.commands) {
       if (!evaluateCommand(commandPolicy, command).decision.allowed) throw new Error(`Command unavailable under compiled policy: ${step.id}`)
@@ -86,7 +86,8 @@ export function planWorkflow(input: PlannerInput): WorkflowPlan {
   if (definition.maxConcurrency < 1 || (input.installation?.maxConcurrency !== undefined && definition.maxConcurrency > input.installation.maxConcurrency)) throw new Error("Concurrency exceeds installation limit")
   const steps = order.map((id) => clone(byId.get(id)!))
   const plannedDefinition = clone(definition)
-  return immutable({ definition: plannedDefinition, steps, policy: clone(policy), policyHash: policy.hash, workflowHash: hash(plannedDefinition), maxConcurrency: definition.maxConcurrency })
+  const { hash: _sourceHash, ...hashInput } = plannedDefinition as WorkflowDefinition
+  return immutable({ definition: plannedDefinition, steps, policy: clone(policy), policyHash: policy.hash, workflowHash: definition.hash || hash(hashInput), maxConcurrency: definition.maxConcurrency })
 }
 
 export function topologicalReadySteps(plan: WorkflowPlan, records: readonly Readonly<{ id: string; state: StepState }>[]): readonly WorkflowStep[] {

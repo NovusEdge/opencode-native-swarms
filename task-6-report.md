@@ -26,3 +26,9 @@ cloning, and canonical hashing. State identity now requires canonical common
 directory metadata; XDG configuration is authoritative, writes retain a
 complete backup, and events use the same atomic protocol with validation and
 clear corruption failures.
+
+The final review round makes command authority mandatory, enforces installation
+protected paths, preserves schema hashes, validates canonical repository/XDG
+inputs, recovers corrupt primaries from complete backups, validates nested
+records consistently, and adds drift-aware persisted workflow transitions and
+revalidation hooks.

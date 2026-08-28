@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto"
-import type { EnvironmentProvider, FilesystemAdapter, RunRecord } from "./types"
+import { transitionWorkflow } from "./planner"
+import type { EnvironmentProvider, FilesystemAdapter, RunRecord, StepState, WorkflowState } from "./types"
 
 export type RepositoryIdentity = Readonly<{ commonDirectory: string; metadata?: Readonly<Record<string, unknown>> }>
 export type StateStoreOptions = Readonly<{ filesystem: FilesystemAdapter; environment: EnvironmentProvider; repository: RepositoryIdentity; stateRoot?: never }>
@@ -20,7 +21,7 @@ function sanitize(value: unknown, key = ""): unknown {
 }
 function keyFor(repository: RepositoryIdentity | string): string {
   if (typeof repository === "string") throw new Error("Canonical repository identity with metadata is required")
-  if (!repository.commonDirectory || repository.commonDirectory.includes("\0") || !repository.metadata || Object.keys(repository.metadata).length === 0) throw new Error("Repository identity unavailable")
+  if (!/^\/[A-Za-z0-9._+~/-]+$/.test(repository.commonDirectory) || repository.commonDirectory.includes("..") || repository.commonDirectory.includes("\0") || !repository.metadata || Object.keys(repository.metadata).length === 0) throw new Error("Repository identity unavailable")
   const canonical = (v: unknown): string => Array.isArray(v) ? `[${v.map(canonical).join(",")}]` : v && typeof v === "object" ? `{${Object.keys(v as object).sort().map((k) => `${JSON.stringify(k)}:${canonical((v as Record<string, unknown>)[k])}`).join(",")}}` : JSON.stringify(v)
   return createHash("sha256").update(canonical(repository)).digest("hex")
 }
@@ -40,7 +41,9 @@ export class RepositoryStateStore {
     const configured = this.env.get("XDG_STATE_HOME")
     const fallback = `${this.env.homeDirectory()}/.local/state`
     if (!configured && !this.env.homeDirectory()) throw new Error("State directory unavailable")
-    this.root = `${(configured || fallback).replace(/\/$/, "")}/opencode-native-swarms/${this.repositoryKey}`
+    const stateBase = configured || fallback
+    if (!/^\/[A-Za-z0-9._+~/-]+$/.test(stateBase) || stateBase.includes("..") || stateBase.includes("\0")) throw new Error("Invalid XDG state directory")
+    this.root = `${stateBase.replace(/\/$/, "")}/opencode-native-swarms/${this.repositoryKey}`
   }
   private path(runId: string) { if (!runId || /[\\/\0]/.test(runId)) throw new Error("Invalid run ID"); return `${this.root}/${runId}.json` }
   private lockPath() { return `${this.root}/.lock` }
@@ -48,12 +51,16 @@ export class RepositoryStateStore {
   private validate(value: unknown): RunRecord {
     if (!value || typeof value !== "object") throw new Error("Corrupt state record")
     const record = value as Record<string, unknown>
-    for (const key of ["runId", "workflowName", "workflowHash", "state", "createdAt", "updatedAt", "steps", "policyHash"]) if (typeof record[key] !== "string" && key !== "steps") throw new Error("Incomplete state record")
+    for (const key of ["runId", "workflowName", "workflowHash", "state", "createdAt", "updatedAt", "policyHash"]) if (typeof record[key] !== "string") throw new Error("Incomplete state record")
+    if (!/^[0-9a-f]{64}$/.test(record.workflowHash as string) || !/^[0-9a-f]{64}$/.test(record.policyHash as string) || !Number.isInteger(record.revision) || (record.revision as number) < 1) throw new Error("Invalid state hashes or revision")
+    if (!/^\d{4}-\d\d-\d\dT/.test(record.createdAt as string) || !/^\d{4}-\d\d-\d\dT/.test(record.updatedAt as string)) throw new Error("Invalid state timestamps")
+    if (!( ["draft", "awaiting-approval", "running", "succeeded", "failed", "cancelled", "stale"] as readonly string[]).includes(record.state as string)) throw new Error("Invalid workflow state")
     if (!Array.isArray(record.steps)) throw new Error("Corrupt state steps")
+    for (const step of record.steps) { if (!step || typeof step !== "object" || typeof (step as any).id !== "string" || !(["queued", "ready", "running", "succeeded", "failed", "cancelled", "skipped"] as readonly string[]).includes((step as any).state)) throw new Error("Corrupt step record") }
     return value as RunRecord
   }
   async read(runId: string): Promise<RunRecord | undefined> {
-    try { return this.validate(JSON.parse(await this.fs.read(this.path(runId)))) } catch (error) { if (error instanceof Error && /not found|ENOENT/i.test(error.message)) { try { return this.validate(JSON.parse(await this.fs.read(`${this.path(runId)}.complete`))) } catch { return undefined } } throw error }
+    try { return this.validate(JSON.parse(await this.fs.read(this.path(runId)))) } catch (error) { try { return this.validate(JSON.parse(await this.fs.read(`${this.path(runId)}.complete`))) } catch { if (error instanceof Error && /not found|ENOENT|Corrupt|Incomplete|Invalid/i.test(error.message)) return undefined; throw error } }
   }
   async write(runId: string, record: RunRecord): Promise<void> {
     await this.withLock(async () => {
@@ -71,13 +78,19 @@ export class RepositoryStateStore {
   async appendEvent(runId: string, event: StateEvent): Promise<RunRecord | undefined> {
     return this.withLock(async () => { const current = await this.read(runId); if (!current) return undefined; if (!event?.type) throw new Error("Invalid state event"); const events = [...(((current as any).events ?? []) as unknown[]), sanitize(event)]; const next = { ...current, events, updatedAt: new Date().toISOString() } as RunRecord; await this.writeUnlocked(runId, next); return next })
   }
+  async transition(runId: string, next: WorkflowState, expected?: Readonly<{ repositoryId?: string; workspaceId?: string; revision?: number; policyHash?: string }>): Promise<RunRecord | undefined> {
+    return this.withLock(async () => { const current = await this.read(runId); if (!current) return undefined; if (expected?.revision !== undefined && expected.revision !== current.revision || expected?.policyHash !== undefined && expected.policyHash !== current.policyHash) throw new Error("State drift detected"); transitionWorkflow(current.state, next); const updated = { ...current, state: next, updatedAt: new Date().toISOString() } as RunRecord; await this.writeUnlocked(runId, updated); return updated })
+  }
+  async revalidate(runId: string, current: Readonly<{ repositoryId?: string; workspaceId?: string; revision?: number; policyHash?: string }>): Promise<Readonly<{ stale: boolean; record?: RunRecord }>> {
+    const record = await this.read(runId); if (!record) return { stale: true }; const stale = (current.revision !== undefined && current.revision !== record.revision) || (current.policyHash !== undefined && current.policyHash !== record.policyHash) || (current.repositoryId !== undefined && (record as any).repository?.id !== current.repositoryId) || (current.workspaceId !== undefined && (record as any).repository?.directory !== current.workspaceId); return { stale, record }
+  }
   private async writeUnlocked(runId: string, record: RunRecord): Promise<void> { const data = JSON.stringify(sanitize(record)); const target = this.path(runId), temp = `${target}.tmp-${Date.now()}`; const anyFs = this.fs as any; if (typeof anyFs.writeTemp === "function") await anyFs.writeTemp(temp, data); else await this.fs.atomicWrite(temp, data); if (typeof anyFs.fsync === "function") try { await anyFs.fsync(temp) } catch {} if (typeof anyFs.rename === "function") await anyFs.rename(temp, target); else await this.fs.atomicWrite(target, data); await this.fs.atomicWrite(`${target}.complete`, data) }
   async listRuns(): Promise<readonly RunRecord[]> {
     const fsAny = this.fs as FilesystemAdapter & Record<string, unknown>
     if (typeof fsAny.list !== "function") return []
     const paths = await (fsAny.list as (path: string) => Promise<readonly string[]>)(this.root)
     const runs: RunRecord[] = []
-    for (const path of paths) { if (!path.endsWith(".json") || path.endsWith(".tmp.json")) continue; try { const value = JSON.parse(await this.fs.read(path)); if (value && typeof value.runId === "string") runs.push(value) } catch { /* ignore incomplete records */ } }
+    for (const path of paths) { if (!path.endsWith(".json") || path.endsWith(".tmp.json") || path.endsWith(".complete")) continue; try { runs.push(this.validate(JSON.parse(await this.fs.read(path)))) } catch { /* corrupt records are not surfaced */ } }
     return runs.sort((a, b) => a.runId.localeCompare(b.runId))
   }
 }
