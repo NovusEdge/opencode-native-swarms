@@ -7,6 +7,7 @@ export const expectedPackageFiles = [
   "src/git.ts",
   "src/index.ts",
   "src/process.ts",
+  "src/read.ts",
   "src/search.ts",
 ] as const
 

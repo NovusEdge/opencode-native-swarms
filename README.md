@@ -42,26 +42,31 @@ and the `swarm` command.
 
 | Name | Mode | Boundary |
 | --- | --- | --- |
-| `workflow-director` | primary | Reads and searches locally through protected tools, asks questions, and delegates only to the three workers below |
+| `workflow-director` | primary | Reads and searches locally through protected, worktree-contained tools, asks questions, and delegates only to the three workers below |
 | `swarm-researcher` | subagent | Uses protected local search and web sources; no shell or delegation |
 | `swarm-reviewer` | subagent | Reads locally and uses the plugin's hardened, non-shell Git inspection tool |
 | `swarm-tester` | subagent | Uses hardened Git inspection and approved fixed test, lint, and type-check commands |
 | `/swarm` | command | Starts `workflow-director` for the supplied objective |
 
-Every agent is deny-by-default. Reads of `.env`, environment-file variants,
-and `secrets/**` are denied, with example environment files explicitly allowed.
+Every agent is deny-by-default. Built-in read is disabled because its lexical
+permission check cannot constrain a symlink's resolved target. The replacement
+`swarm_read` tool accepts only worktree-relative paths, resolves symlinks before
+reading, reapplies protected-path rules to the resolved target, and bounds file
+size and returned lines. Reads of `.env`, environment-file variants, and
+`secrets/**` are denied, with example environment files explicitly allowed.
 Built-in grep is disabled because OpenCode authorizes its regex rather than the
 paths it reads. The replacement `swarm_search` tool fixes searches to the active
 worktree, ignores inherited ripgrep configuration, and excludes Git metadata,
 all environment files—including examples—and `secrets/**`; example environment
-files remain available only through the path-checked read tool. Built-in LSP is
-also disabled because its permission is not path-aware.
+files remain available only through `swarm_read`. Built-in LSP is also disabled
+because its permission is not path-aware.
 
 The reviewer has no shell access. Git inspection is implemented as fixed
 argument-array operations: arbitrary paths and flags are not accepted,
 external diff and text-conversion drivers are disabled, and protected paths
-are excluded from patch output. Git subprocesses also disable optional locks
-and fsmonitor and have output and time limits. The tester's shell permission
+are excluded from patch output. Git subprocesses strip inherited `GIT_*`
+variables, disable lazy fetching, optional locks, external configuration, and
+fsmonitor, and have output and time limits. The tester's shell permission
 denies everything before enumerating exact, argument-free test commands. Test
 scripts still execute project code, so use the tester only in repositories you
 already trust.

@@ -1,4 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
+import { realpath } from "node:fs/promises"
 import { runBounded } from "./process"
 
 const allowedAgents = new Set(["swarm-reviewer", "swarm-tester"])
@@ -49,6 +50,27 @@ function validatedRevision(value: string | undefined, name: string): string | un
 
 function rejectArguments(condition: boolean, operation: string): void {
   if (condition) throw new Error(`Unsupported arguments for Git ${operation} inspection`)
+}
+
+export function buildGitEnvironment(
+  source: Record<string, string | undefined>,
+): Record<string, string | undefined> {
+  const environment = Object.fromEntries(
+    Object.entries(source).filter(([key]) => !key.toUpperCase().startsWith("GIT_")),
+  )
+  const nullDevice = process.platform === "win32" ? "NUL" : "/dev/null"
+
+  return {
+    ...environment,
+    GIT_ATTR_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: nullDevice,
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_SYSTEM: nullDevice,
+    GIT_NO_LAZY_FETCH: "1",
+    GIT_NO_REPLACE_OBJECTS: "1",
+    GIT_OPTIONAL_LOCKS: "0",
+    GIT_TERMINAL_PROMPT: "0",
+  }
 }
 
 export function buildGitArguments(input: GitInspectArgs): string[] {
@@ -162,7 +184,7 @@ async function runGit(
 ): Promise<string> {
   const result = await runBounded(["git", "-C", worktree, ...args], {
     signal,
-    env: { ...Bun.env, GIT_OPTIONAL_LOCKS: "0" },
+    env: buildGitEnvironment(Bun.env),
     maxStdoutBytes: maximumOutputLength,
     maxStderrBytes: 32_000,
     timeoutMs: 15_000,
@@ -203,6 +225,27 @@ async function resolveCommit(
   throw new Error("Git revision must resolve to a commit")
 }
 
+async function assertGitWorktree(worktree: string, signal: AbortSignal): Promise<string> {
+  const root = await realpath(worktree)
+  const output = await runGit(
+    root,
+    [
+      "--no-optional-locks",
+      "-c",
+      "core.fsmonitor=false",
+      "--no-pager",
+      "rev-parse",
+      "--show-toplevel",
+    ],
+    signal,
+  )
+  const repositoryRoot = await realpath(output.trim())
+  if (repositoryRoot !== root) {
+    throw new Error("Git repository root does not match active worktree")
+  }
+  return root
+}
+
 export const nativeSwarmGitInspectTool = tool({
   description:
     "Inspect trusted Git repository state through fixed, non-shell operations that exclude protected environment and secrets paths.",
@@ -231,16 +274,17 @@ export const nativeSwarmGitInspectTool = tool({
       throw new Error("Git inspection is not available to this agent")
     }
 
+    const worktree = await assertGitWorktree(context.worktree, context.abort)
     const safeArgs = { ...args }
     if (safeArgs.revision) {
-      safeArgs.revision = await resolveCommit(context.worktree, safeArgs.revision, context.abort)
+      safeArgs.revision = await resolveCommit(worktree, safeArgs.revision, context.abort)
     }
     if (safeArgs.compareTo) {
-      safeArgs.compareTo = await resolveCommit(context.worktree, safeArgs.compareTo, context.abort)
+      safeArgs.compareTo = await resolveCommit(worktree, safeArgs.compareTo, context.abort)
     }
 
     const gitArguments = buildGitArguments(safeArgs)
-    const stdout = await runGit(context.worktree, gitArguments, context.abort)
+    const stdout = await runGit(worktree, gitArguments, context.abort)
 
     return stdout
   },

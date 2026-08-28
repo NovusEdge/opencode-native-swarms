@@ -3,7 +3,11 @@ import type { ToolContext } from "@opencode-ai/plugin"
 import { mkdir, mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { buildGitArguments, nativeSwarmGitInspectTool } from "../src/git"
+import {
+  buildGitArguments,
+  buildGitEnvironment,
+  nativeSwarmGitInspectTool,
+} from "../src/git"
 
 function runGit(directory: string, ...args: string[]): void {
   const result = Bun.spawnSync(["git", "-C", directory, ...args], {
@@ -54,6 +58,27 @@ describe("hardened git inspection", () => {
     ).toThrow()
   })
 
+  test("sanitizes Git-specific environment variables and disables lazy fetching", () => {
+    expect(
+      buildGitEnvironment({
+        PATH: "/usr/bin",
+        GIT_DIR: "/tmp/redirected",
+        GIT_CONFIG_COUNT: "1",
+        git_work_tree: "/tmp/redirected-tree",
+      }),
+    ).toMatchObject({
+      PATH: "/usr/bin",
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_NO_LAZY_FETCH: "1",
+      GIT_NO_REPLACE_OBJECTS: "1",
+      GIT_OPTIONAL_LOCKS: "0",
+      GIT_TERMINAL_PROMPT: "0",
+    })
+    expect(
+      Object.keys(buildGitEnvironment({ GIT_DIR: "/tmp/redirected" })),
+    ).not.toContain("GIT_DIR")
+  })
+
   test("rejects callers outside the two inspection workers before spawning git", async () => {
     const context = {
       agent: "workflow-director",
@@ -91,6 +116,87 @@ describe("hardened git inspection", () => {
       const output = await nativeSwarmGitInspectTool.execute({ operation: "status" }, context)
 
       expect(output).toContain("## status-test")
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  test("ignores inherited Git repository redirection", async () => {
+    const intended = await mkdtemp(join(tmpdir(), "native-swarms-intended-"))
+    const redirected = await mkdtemp(join(tmpdir(), "native-swarms-redirected-"))
+    const originalGitDir = Bun.env.GIT_DIR
+    const originalGitWorkTree = Bun.env.GIT_WORK_TREE
+
+    try {
+      for (const [directory, branch] of [
+        [intended, "intended"],
+        [redirected, "redirected"],
+      ] as const) {
+        await Bun.write(join(directory, "safe.ts"), `export const branch = "${branch}"\n`)
+        runGit(directory, "init", "-b", branch)
+        runGit(directory, "add", ".")
+        runGit(
+          directory,
+          "-c",
+          "user.name=Native Swarms Test",
+          "-c",
+          "user.email=test@example.invalid",
+          "commit",
+          "-m",
+          "initial",
+        )
+      }
+
+      Bun.env.GIT_DIR = join(redirected, ".git")
+      Bun.env.GIT_WORK_TREE = redirected
+      const context = {
+        agent: "swarm-reviewer",
+        worktree: intended,
+        abort: new AbortController().signal,
+      } as ToolContext
+
+      const output = await nativeSwarmGitInspectTool.execute({ operation: "status" }, context)
+
+      expect(output).toContain("## intended")
+      expect(output).not.toContain("redirected")
+    } finally {
+      if (originalGitDir === undefined) delete Bun.env.GIT_DIR
+      else Bun.env.GIT_DIR = originalGitDir
+      if (originalGitWorkTree === undefined) delete Bun.env.GIT_WORK_TREE
+      else Bun.env.GIT_WORK_TREE = originalGitWorkTree
+      await rm(intended, { recursive: true, force: true })
+      await rm(redirected, { recursive: true, force: true })
+    }
+  })
+
+  test("rejects a context directory that is not the repository worktree root", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "native-swarms-root-"))
+    const nested = join(directory, "nested")
+
+    try {
+      await mkdir(nested)
+      await Bun.write(join(directory, "safe.ts"), "export const value = 1\n")
+      runGit(directory, "init", "-b", "root-test")
+      runGit(directory, "add", ".")
+      runGit(
+        directory,
+        "-c",
+        "user.name=Native Swarms Test",
+        "-c",
+        "user.email=test@example.invalid",
+        "commit",
+        "-m",
+        "initial",
+      )
+      const context = {
+        agent: "swarm-reviewer",
+        worktree: nested,
+        abort: new AbortController().signal,
+      } as ToolContext
+
+      await expect(
+        nativeSwarmGitInspectTool.execute({ operation: "status" }, context),
+      ).rejects.toThrow("Git repository root does not match active worktree")
     } finally {
       await rm(directory, { recursive: true, force: true })
     }

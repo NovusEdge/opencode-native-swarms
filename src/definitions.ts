@@ -11,25 +11,14 @@ type NativeAgentDefinition = {
   prompt: string
 }
 
-const protectedReadPermission = {
-  "*": "allow",
-  ".env": "deny",
-  ".env.*": "deny",
-  "*.env": "deny",
-  "*.env.*": "deny",
-  ".env.example": "allow",
-  "*.env.example": "allow",
-  "secrets/**": "deny",
-  "**/secrets/**": "deny",
-} as const
-
 const localInspectionPermissions = {
-  read: protectedReadPermission,
+  read: "deny",
   glob: "allow",
   grep: "deny",
   list: "allow",
   lsp: "deny",
   skill: "allow",
+  swarm_read: "allow",
   swarm_search: "allow",
 } as const
 
@@ -99,7 +88,7 @@ When a worker fails or is cancelled, say which assignment is incomplete. Retry a
 
 Answer only the assigned question and stay inside its stated scope.
 
-- Inspect the current project with read, \`swarm_search\`, and glob tools.
+- Inspect the current project with \`swarm_read\`, \`swarm_search\`, and glob tools.
 - For changing technical facts, prefer current primary documentation.
 - Separate observed facts from inferences.
 - Cite exact project paths or source links that support the answer.

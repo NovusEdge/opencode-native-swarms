@@ -147,19 +147,8 @@ test("protects environment and secrets files for every swarm agent", () => {
   applyNativeSwarmsConfig(config)
 
   for (const agent of Object.keys(config.agent ?? {})) {
-    const read = permissionsFor(config, agent).read
-
-    expect(read).toMatchObject({
-      "*": "allow",
-      ".env": "deny",
-      ".env.*": "deny",
-      "*.env": "deny",
-      "*.env.*": "deny",
-      ".env.example": "allow",
-      "*.env.example": "allow",
-      "secrets/**": "deny",
-      "**/secrets/**": "deny",
-    })
+    expect(permissionsFor(config, agent).read).toBe("deny")
+    expect(permissionsFor(config, agent).swarm_read).toBe("allow")
     expect(permissionsFor(config, agent).lsp).toBe("deny")
   }
 })
