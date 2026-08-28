@@ -31,5 +31,8 @@
   },
   "peerDependencies": {
     "@opencode-ai/plugin": ">=1.18.25 <2"
+  },
+  "dependencies": {
+    "zod": "4.1.8"
   }
 }

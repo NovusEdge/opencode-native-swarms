@@ -4,6 +4,9 @@
   "workspaces": {
     "": {
       "name": "opencode-native-swarms",
+      "dependencies": {
+        "zod": "4.1.8",
+      },
       "devDependencies": {
         "@opencode-ai/plugin": "1.18.25",
         "@types/bun": "1.4.0",
