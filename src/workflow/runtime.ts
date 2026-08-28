@@ -21,6 +21,7 @@ export type RuntimeOptions = Readonly<{
   amend?: (runId: string, input: unknown) => Promise<Readonly<{ plan: WorkflowPlan; summary: ApprovalSummary }>>
   revalidate?: (runId: string, plan?: WorkflowPlan) => Promise<void>
   registerToolHook?: (hook: (input: { sessionID: string; tool: string }) => void) => void
+  consumeApproval?: (token: string, workflowHash: string, policyHash: string) => Promise<boolean> | boolean
 }>
 export type WorkflowRuntime = Readonly<{
   launch(plan: WorkflowPlan, approval: LaunchApproval): Promise<{ runId: string }>
@@ -159,6 +160,7 @@ export function createWorkflowRuntime(options: RuntimeOptions): WorkflowRuntime 
     if (!agentMatches(options.agent) || options.agent?.name !== RESERVED_AGENT) throw new Error("Reserved workflow agent is unavailable or mismatched")
     if (approval.workflowHash !== plan.workflowHash || approval.policyHash !== plan.policyHash || !approval.singleUse || consumedApprovals.has(approval.token)) throw new Error("Launch approval does not match plan")
     const tokenHash = createHash("sha256").update(approval.token).digest("hex")
+    if (options.consumeApproval && !(await options.consumeApproval(approval.token, plan.workflowHash, plan.policyHash))) throw new Error("Launch approval already consumed")
     const listed = typeof (options.state as any).listRuns === "function" ? await (options.state as any).listRuns() : []
     for (const prior of listed) if ((prior as any).approval?.tokenHash === tokenHash) throw new Error("Launch approval already consumed")
     consumedApprovals.add(approval.token)

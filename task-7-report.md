@@ -27,3 +27,7 @@ classification, and optional host hook registration.
 The follow-up used behavior-first tests: host hook absence and approval replay
 were confirmed failing before their fixes, then the focused suite was rerun.
 Final verification: 4 runtime tests passed and TypeScript typecheck passed.
+
+Final behavior-first batch adds cancellation-during-create, hook execution
+blocking, and shared approval-broker replay tests. Seven focused runtime tests
+now pass; typecheck passes.
