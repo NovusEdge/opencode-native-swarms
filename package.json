@@ -1,0 +1,32 @@
+{
+  "name": "opencode-native-swarms",
+  "version": "0.1.0",
+  "description": "Permission-scoped native background-agent workflows for OpenCode",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.ts",
+    "./server": "./src/index.ts"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "opencode": ">=1.18.25"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "check": "bun test && tsc --noEmit"
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "1.18.25",
+    "@types/bun": "1.4.0",
+    "typescript": "7.0.2"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": ">=1.18.25 <2"
+  }
+}
