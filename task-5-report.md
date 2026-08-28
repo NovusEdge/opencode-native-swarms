@@ -26,3 +26,8 @@ Final review follow-up removes the public trusted-path escape hatch, requires
 fresh status and staged-path evidence, enforces protected operation paths at
 the write boundary, applies configured branch protection across modes, and
 requires a final adapter removal boundary before cleanup.
+
+The final fix adds an executable `commitWorkspace` boundary: fresh Git status,
+branch, identity, staged paths, containment, protected-target, and write-boundary
+checks all run immediately before the injected commit operation. Sequential
+handoffs can also be verified against fresh identity/tree/commit state.

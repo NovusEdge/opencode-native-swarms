@@ -164,7 +164,12 @@ export async function assertWriteBoundary(path: string, repositoryRoot: string, 
   if (typeof boundary !== "function") throw new Error("Write boundary adapter unavailable")
   const checked = await boundary(resolved, root)
   if (typeof checked === "string" && !contained(root, checked)) throw new Error("Write boundary containment check failed")
-  return checked ?? resolved
+  const finalTarget = checked ?? resolved
+  const finalRelative = finalTarget.slice(root.length).replace(/^\//, "") || "."
+  for (const scope of protectedPaths) {
+    try { if (badPath(scope) || picomatch(scope, { dot: true, nocase: false })(finalRelative)) throw new Error("Protected write target") } catch (error) { if (error instanceof Error && error.message === "Protected write target") throw error; throw new Error("Malformed protected path scope") }
+  }
+  return finalTarget
 }
 
 export async function validateCommit(input: Readonly<{ workspace: WorkspaceResult; capabilities: readonly Capability[]; approved: boolean; stagedPaths?: readonly string[]; writeScopes: readonly string[]; protectedPaths?: readonly string[]; protectedBranches?: readonly string[]; branch?: string }>, adapters: WorkspaceAdapters): Promise<Readonly<{ allowed: boolean; reason?: string }>> {
@@ -177,5 +182,35 @@ export async function validateCommit(input: Readonly<{ workspace: WorkspaceResul
   const checked = validateStagedPaths(staged, input.writeScopes, input.protectedPaths)
   if (!checked.allowed || fresh.clean === false) return { allowed: false, reason: checked.reason ?? "Workspace has unrecorded changes" }
   await assertWriteBoundary(input.workspace.path, input.workspace.repositoryRoot, adapters, input.protectedPaths, staged)
+  return { allowed: true }
+}
+
+/** Performs the complete commit boundary and invokes Git only after every fresh check. */
+export async function commitWorkspace(input: Readonly<{ workspace: WorkspaceResult; capabilities: readonly Capability[]; approved: boolean; writeScopes: readonly string[]; protectedPaths?: readonly string[]; protectedBranches?: readonly string[]; branch?: string; message: string }>, adapters: WorkspaceAdapters): Promise<Readonly<{ allowed: boolean; reason?: string; stagedPaths?: readonly string[]; commit?: unknown }>> {
+  if (!input.capabilities.includes("git.commit") || !input.approved) return { allowed: false, reason: "Commit approval required" }
+  if (typeof adapters.git.commit !== "function" || typeof adapters.git.stagedPaths !== "function" || typeof adapters.git.branch !== "function") return { allowed: false, reason: "Commit adapter evidence unavailable" }
+  const current = await status(adapters.git, input.workspace.path)
+  const branch = await adapters.git.branch(input.workspace.path)
+  const branches = input.protectedBranches ?? ["main", "master", "protected/**"]
+  if (typeof branch !== "string" || branches.some((pattern) => { try { return badPath(pattern) || picomatch(pattern, { dot: true, nocase: false })(branch) } catch { return true } })) return { allowed: false, reason: "Protected branch" }
+  const actual = await identity(adapters.git, input.workspace.path)
+  if (actual !== input.workspace.repositoryId) return { allowed: false, reason: "Workspace repository identity mismatch" }
+  const staged = await adapters.git.stagedPaths(input.workspace.path)
+  if (!Array.isArray(staged) || staged.some((path: unknown) => typeof path !== "string")) return { allowed: false, reason: "Fresh staged-path evidence unavailable" }
+  const checked = validateStagedPaths(staged, input.writeScopes, input.protectedPaths)
+  if (!checked.allowed || current.clean !== true) return { allowed: false, reason: checked.reason ?? "Workspace is not clean" }
+  const target = await assertWriteBoundary(input.workspace.path, input.workspace.repositoryRoot, adapters, input.protectedPaths, staged)
+  const result = await adapters.git.commit(target, input.message)
+  return { allowed: true, stagedPaths: staged, commit: result }
+}
+
+/** Verifies a sequential handoff against fresh tree/commit and repository identity evidence. */
+export async function verifyWriterHandoff(prior: WriterHandoff, workspace: WorkspaceResult, adapters: WorkspaceAdapters): Promise<Readonly<{ allowed: boolean; reason?: string }>> {
+  if (!prior.workspaceIdentity || (!prior.expectedTree && !prior.expectedCommit) || typeof adapters.git.repositoryIdentity !== "function" || typeof adapters.git.status !== "function") return { allowed: false, reason: "Incomplete handoff evidence" }
+  const actualIdentity = await identity(adapters.git, workspace.path)
+  if (actualIdentity !== prior.workspaceIdentity) return { allowed: false, reason: "Handoff workspace identity mismatch" }
+  const current = await status(adapters.git, workspace.path)
+  if (prior.expectedTree && current.tree !== prior.expectedTree) return { allowed: false, reason: "Handoff tree mismatch" }
+  if (prior.expectedCommit && current.commit !== prior.expectedCommit) return { allowed: false, reason: "Handoff commit mismatch" }
   return { allowed: true }
 }

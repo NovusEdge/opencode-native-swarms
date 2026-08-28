@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { checkWriterOverlap, cleanupWorkspace, resolveWorkspace, validateStagedPaths } from "./workspace"
+import { assertWriteBoundary, checkWriterOverlap, cleanupWorkspace, commitWorkspace, resolveWorkspace, validateStagedPaths, verifyWriterHandoff } from "./workspace"
 
 const fs = (paths: Record<string, string> = {}) => ({
   realpath: async (p: string) => paths[p] ?? p,
@@ -37,5 +37,26 @@ describe("workspace safety", () => {
     expect(validateStagedPaths(["src/a.ts", ".env"], ["src/**"], [".env"])).toMatchObject({ allowed: false })
     const result = await cleanupWorkspace({ path: "/repo", managed: true, failed: true, status: { clean: false } }, { filesystem: fs(), git: git() })
     expect(result.cleaned).toBe(false)
+  })
+
+  test("rejects public absolute paths and protected final targets", async () => {
+    await expect(resolveWorkspace({ mode: "read-only", repositoryRoot: "/repo", repositoryId: "repo-1", path: "/outside" }, { filesystem: fs(), git: git() })).rejects.toThrow(/path/)
+    const guarded = { ...fs(), beforeWrite: async () => "/repo/.env" }
+    await expect(assertWriteBoundary("/repo/src/a.ts", "/repo", { filesystem: guarded, git: git() }, [".env"], ["src/a.ts"])).rejects.toThrow(/Protected/)
+  })
+
+  test("commit requires fresh staged evidence and invokes adapter at boundary", async () => {
+    const commits: unknown[] = []
+    const adapters = { filesystem: { ...fs(), beforeWrite: async (path: string) => path }, git: git({ branch: async () => "feature/x", stagedPaths: async () => ["src/a.ts"], commit: async (...args: unknown[]) => { commits.push(args); return "c1" } }) }
+    const workspace = { mode: "worktree" as const, path: "/repo", repositoryRoot: "/repo", repositoryId: "repo-1", managed: true }
+    const result = await commitWorkspace({ workspace, capabilities: ["git.commit"], approved: true, writeScopes: ["src/**"], message: "ok" }, adapters)
+    expect(result.allowed).toBe(true)
+    expect(commits).toHaveLength(1)
+  })
+
+  test("handoff verifies fresh identity and tree", async () => {
+    const workspace = { mode: "current" as const, path: "/repo", repositoryRoot: "/repo", repositoryId: "repo-1", managed: false }
+    const result = await verifyWriterHandoff({ workspaceIdentity: "repo-1", expectedTree: "tree-1" }, workspace, { filesystem: fs(), git: git({ status: async () => ({ clean: true, tree: "tree-2" }) }) })
+    expect(result.allowed).toBe(false)
   })
 })
