@@ -50,3 +50,7 @@ spaces and non-ASCII repository/XDG paths.
 Final review closure also records workflow transition evidence and rejects
 attempts to mark terminal runs stale, while retaining lock-serialized state
 updates and expected metadata guards.
+
+The final regression fix rejects malformed/noncanonical source hashes and
+compares supplied Git, output, session, and ownership evidence against the
+persisted expectations, preserving matching revalidation facts.

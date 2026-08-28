@@ -33,7 +33,7 @@ export function planWorkflow(input: PlannerInput): WorkflowPlan {
   const { definition, policy } = input
   const commandPolicy = input.commandPolicy
   const { hash: sourceHash, ...hashlessDefinition } = definition
-  if (sourceHash && /^[0-9a-f]{64}$/.test(sourceHash) && sourceHash !== hash(hashlessDefinition)) throw new Error("Workflow hash mismatch")
+  if (sourceHash && (!/^[0-9a-f]{64}$/.test(sourceHash) || sourceHash !== hash(hashlessDefinition))) throw new Error("Workflow hash mismatch")
   const byId = new Map<string, WorkflowStep>()
   for (const step of definition.steps) {
     if (byId.has(step.id)) throw new Error(`Duplicate step id: ${step.id}`)
