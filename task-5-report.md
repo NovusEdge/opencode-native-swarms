@@ -14,3 +14,10 @@ Verification:
 
 - `bun test src/workflow/workspace.test.ts` — 5 passed
 - `bun run typecheck` — passed
+
+Hardening follow-up addressed review findings: adapter identity/ownership now
+fail closed; only adapter-created worktrees may provide trusted absolute paths;
+roots/scopes reject malformed POSIX forms; protected writes, explicit
+`workspace.patch` approval, structured handoff evidence, fresh cleanup checks,
+and the injected final write boundary are enforced. `validateCommit` requires
+`git.commit`, approval, a fresh staged-path check, and an unprotected branch.
