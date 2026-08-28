@@ -76,12 +76,17 @@ export function createWorkflowRuntime(options: RuntimeOptions): WorkflowRuntime 
   const active = new Map<string, Set<string>>()
   const cancelled = new Set<string>()
   const plans = new Map<string, WorkflowPlan>()
+  const workspaceEvidence = new Map<string, WorkspaceResult[]>()
+  const updateQueues = new Map<string, Promise<unknown>>()
   const signals = new Map<string, Set<() => void>>()
   const wake = (runId: string) => { for (const fn of signals.get(runId) ?? []) fn() }
 
   const get = async (runId: string) => { const record = await options.state.read(runId); if (!record) throw new Error("Run absent"); return record }
   const update = async (runId: string, fn: (record: RunRecord) => RunRecord) => {
-    const record = await get(runId); const next = fn(record); await options.state.write(runId, next); wake(runId); return next
+    const prior = updateQueues.get(runId) ?? Promise.resolve()
+    let result!: RunRecord
+    const current = prior.then(async () => { const record = await get(runId); result = fn(record); await options.state.write(runId, result); wake(runId) })
+    updateQueues.set(runId, current.catch(() => {})); await current; return result
   }
   const failStep = async (runId: string, stepId: string, reason: string) => update(runId, (r) => ({ ...r, steps: r.steps.map((s) => s.id === stepId ? { ...s, state: "failed", failure: reason, finishedAt: iso(now) } : s), updatedAt: iso(now) }))
   const schedule = async (runId: string): Promise<void> => {
@@ -91,8 +96,10 @@ export function createWorkflowRuntime(options: RuntimeOptions): WorkflowRuntime 
       const ready = topologicalReadySteps(plan, record.steps).filter((step) => !record.steps.some((s) => s.id === step.id && s.state !== "queued"))
       const capacity = plan.maxConcurrency - (active.get(runId)?.size ?? 0)
       for (const step of ready.slice(0, Math.max(0, capacity))) {
+        const reservation = `pending:${step.id}:${randomUUID()}`
+        ;(active.get(runId) ?? new Set()).add(reservation)
         await update(runId, (r) => ({ ...r, steps: r.steps.map((s) => s.id === step.id ? { ...s, state: "ready" } : s), updatedAt: iso(now) }))
-        void execute(runId, plan, step).catch(async (e) => { await failStep(runId, step.id, errorText(e)); wake(runId) })
+        void execute(runId, plan, step, reservation).catch(async (e) => { await failStep(runId, step.id, errorText(e)); wake(runId) })
       }
       record = await get(runId)
       const anyActive = (active.get(runId)?.size ?? 0) > 0
@@ -113,40 +120,47 @@ export function createWorkflowRuntime(options: RuntimeOptions): WorkflowRuntime 
       return
     }
   }
-  async function execute(runId: string, plan: WorkflowPlan, step: WorkflowStep) {
+  async function execute(runId: string, plan: WorkflowPlan, step: WorkflowStep, reservation: string) {
     // Session creation is intentionally outside the scheduler's critical path.
     const workspace = options.workspace?.resolve ? await options.workspace.resolve(step) : undefined
+    if (workspace) { const list = workspaceEvidence.get(runId) ?? []; list.push(workspace); workspaceEvidence.set(runId, list); await update(runId, (r) => ({ ...r, workspaces: list, updatedAt: iso(now) } as any)) }
     const session = await options.sessions.create({ directory: workspace?.path ?? options.repositoryRoot ?? ".", title: `${plan.definition.name}:${step.id}` })
     const binding = { runId, stepId: step.id, sessionID: session.sessionID, policyHash: plan.policyHash, workspace }
-    bindings.set(session.sessionID, binding); const set = active.get(runId) ?? new Set<string>(); set.add(session.sessionID); active.set(runId, set)
+    bindings.set(session.sessionID, binding); const set = active.get(runId) ?? new Set<string>(); set.delete(reservation); set.add(session.sessionID); active.set(runId, set)
     await update(runId, (r) => ({ ...r, steps: r.steps.map((s) => s.id === step.id ? { ...s, state: "running", sessionID: session.sessionID, startedAt: iso(now) } : s), updatedAt: iso(now) }))
     try {
       const current = await get(runId)
       const inputs = step.inputs.map((input) => ({ ...input, value: current.steps.find((s) => s.id === input.step)?.outputs?.[input.output] }))
       await options.sessions.promptAsync({ sessionID: session.sessionID, agent: RESERVED_AGENT, model: step.model.mode === "alias" ? step.model.alias : undefined, system: JSON.stringify({ step: step.id, policyHash: plan.policyHash, inputs, outputs: step.outputs, tools: ["workflow_command"], limits: step.limits }), tools: ["workflow_command"], parts: [{ type: "text", text: step.prompt }] })
-      const status = await options.sessions.status(session.sessionID)
-      if (status.type === "running") throw new Error("Session did not complete")
+      const deadline = now() + step.limits.timeoutSeconds * 1000
+      let status = await options.sessions.status(session.sessionID)
+      while (status.type === "running" && now() < deadline && !cancelled.has(runId)) {
+        await new Promise((resolve) => setTimeout(resolve, Math.min(100, Math.max(1, deadline - now()))))
+        status = await options.sessions.status(session.sessionID)
+      }
+      if (cancelled.has(runId)) throw new Error("Workflow cancelled")
+      if (status.type === "running") throw new Error(now() >= deadline ? "Session timed out" : "Session did not complete")
       if (status.type !== "completed") throw new Error(status.error ?? "Session failed")
       const outputs = outputFromMessages(await options.sessions.messages(session.sessionID), step)
       await update(runId, (r) => ({ ...r, steps: r.steps.map((s) => s.id === step.id ? { ...s, state: "succeeded", outputs, finishedAt: iso(now) } : s), updatedAt: iso(now) }))
       const after = await get(runId)
       if (after.steps.every((s) => s.state === "succeeded" || s.state === "skipped") && !terminal(after.state)) await update(runId, (r) => ({ ...r, state: "succeeded", updatedAt: iso(now) }))
     } catch (e) { await failStep(runId, step.id, errorText(e)) }
-    finally { set.delete(session.sessionID); bindings.delete(session.sessionID); wake(runId); await schedule(runId) }
+    finally { set.delete(session.sessionID); set.delete(reservation); bindings.delete(session.sessionID); wake(runId); await schedule(runId) }
   }
   const launch = async (plan: WorkflowPlan, approval: LaunchApproval) => {
     if (!agentMatches(options.agent)) throw new Error("Reserved workflow agent is unavailable or mismatched")
     if (approval.workflowHash !== plan.workflowHash || approval.policyHash !== plan.policyHash || !approval.singleUse) throw new Error("Launch approval does not match plan")
     const runId = randomUUID(), timestamp = iso(now)
     const record: RunRecord = { runId, workflowName: plan.definition.name, revision: 1, workflowHash: plan.workflowHash, state: "running", createdAt: timestamp, updatedAt: timestamp, steps: plan.steps.map((s) => ({ id: s.id, state: "queued" })), policyHash: plan.policyHash }
-    await options.state.write(runId, record); plans.set(runId, plan); active.set(runId, new Set()); void schedule(runId).catch(async (e) => { await update(runId, (r) => ({ ...r, state: "failed", updatedAt: iso(now), failure: errorText(e) } as any)) }); return { runId }
+    await options.state.write(runId, { ...record, repository: options.repositoryId && options.repositoryRoot ? { id: options.repositoryId, directory: options.repositoryRoot } : undefined, evidence: { ownership: "opencode-native-swarms" } } as any); plans.set(runId, plan); active.set(runId, new Set()); void schedule(runId).catch(async (e) => { await update(runId, (r) => ({ ...r, state: "failed", updatedAt: iso(now), failure: errorText(e) } as any)) }); return { runId }
   }
   const status = get
-  const wait = async (runId: string, timeoutMs: number) => { const initial = await get(runId); if (terminal(initial.state)) return initial; const result = await new Promise<RunRecord>((resolve) => { let done = false; const finish = async () => { if (!done) { done = true; clearTimeout(timer); signals.get(runId)?.delete(finish); resolve(await get(runId)) } }; const timer = setTimeout(finish, Math.max(0, timeoutMs)); const list = signals.get(runId) ?? new Set(); list.add(finish); signals.set(runId, list) }); return terminal(result.state) ? result : { ...result, timedOut: true } }
+  const wait = async (runId: string, timeoutMs: number) => { const initial = await get(runId); if (terminal(initial.state)) return initial; let unsubscribe: (() => void) | undefined; const result = await new Promise<RunRecord>((resolve) => { let done = false; const finish = async () => { if (!done) { done = true; clearTimeout(timer); signals.get(runId)?.delete(finish); unsubscribe?.(); resolve(await get(runId)) } }; const timer = setTimeout(finish, Math.max(0, timeoutMs)); const list = signals.get(runId) ?? new Set(); list.add(finish); signals.set(runId, list); if (options.event?.subscribe) { const handler = (event: any) => { const sid = event?.sessionID ?? event?.session?.id; const rid = event?.runId; if (rid === runId || (sid && [...bindings.values()].some((b) => b.runId === runId && b.sessionID === sid))) void finish() }; const value = options.event.subscribe(handler); if (typeof value === "function") unsubscribe = value; else void value.then((fn) => { unsubscribe = fn }) } }); return terminal(result.state) ? result : { ...result, timedOut: true } }
   const cancel = async (runId: string) => { cancelled.add(runId); const r = await get(runId); for (const session of active.get(runId) ?? []) await options.sessions.abort(session).catch(() => {}); return update(runId, (x) => x.state === "running" ? { ...x, state: "cancelled", steps: x.steps.map((s) => s.state === "queued" || s.state === "ready" ? { ...s, state: "cancelled" } : s), updatedAt: iso(now) } : x) }
   const amend = async (runId: string, input: unknown) => { if (!options.amend) throw new Error("Amendment adapter unavailable"); const current = await get(runId), result = await options.amend(runId, input); const revision = current.revision + 1; plans.set(runId, result.plan); await update(runId, (r) => ({ ...r, revision, workflowHash: result.plan.workflowHash, policyHash: result.plan.policyHash, state: "awaiting-approval", updatedAt: iso(now) })); return { revision, approval: result.summary } }
   const resume = async (runId: string, approval: LaunchApproval) => { const current = await get(runId), plan = plans.get(runId); if (!plan || approval.workflowHash !== current.workflowHash || approval.policyHash !== current.policyHash) throw new Error("Resume approval does not match run"); if (options.revalidate) await options.revalidate(runId, plan); await options.state.resume(runId, { revision: current.revision, policyHash: current.policyHash }); await update(runId, (r) => ({ ...r, state: "running", updatedAt: iso(now) })); cancelled.delete(runId); void schedule(runId); return get(runId) }
-  const cleanup = async (runId: string) => { const r = await get(runId), workspaces = (r as any).workspaces as readonly WorkspaceResult[] | undefined; if (!workspaces?.length || !options.workspace) return { cleaned: false, reason: "Workspace evidence unavailable" } as CleanupResult; let result: CleanupResult = { cleaned: true }; for (const workspace of workspaces) { const next = await cleanupWorkspace({ ...workspace, failed: r.state === "failed", cancelled: r.state === "cancelled" }, options.workspace); if (!next.cleaned) return next; result = next } return result }
+  const cleanup = async (runId: string) => { const r = await get(runId), workspaces = ((r as any).workspaces ?? workspaceEvidence.get(runId)) as readonly WorkspaceResult[] | undefined; if (!workspaces?.length || !options.workspace) return { cleaned: false, reason: "Workspace evidence unavailable" } as CleanupResult; let result: CleanupResult = { cleaned: true }; for (const workspace of workspaces) { const next = await cleanupWorkspace({ ...workspace, failed: r.state === "failed", cancelled: r.state === "cancelled" }, options.workspace); if (!next.cleaned) return next; result = next } return result }
   return { launch, status, wait, cancel, amend, resume, cleanup, binding: (id) => bindings.get(id), beforeTool: (id, tool) => { if (!bindings.has(id)) throw new Error("Unbound workflow session"); if (BUILTIN_TOOLS.has(tool)) throw new Error("Built-in tool denied for workflow session") } }
 }
 

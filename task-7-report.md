@@ -13,3 +13,8 @@ Verification:
 `bun test src/workflow/runtime.test.ts && bun run typecheck`
 
 Result: 2 tests passed; TypeScript check passed.
+
+Review hardening added serialized state read-modify-write updates, scheduler
+reservations for concurrency, bounded asynchronous status waits with timeout,
+cancellation guards, persisted workspace evidence, event correlation, and
+repository evidence on launch.
