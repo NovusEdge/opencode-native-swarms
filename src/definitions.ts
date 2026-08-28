@@ -20,6 +20,7 @@ const protectedReadPermission = {
   ".env.example": "allow",
   "*.env.example": "allow",
   "secrets/**": "deny",
+  "**/secrets/**": "deny",
 } as const
 
 const localInspectionPermissions = {
@@ -27,7 +28,7 @@ const localInspectionPermissions = {
   glob: "allow",
   grep: "deny",
   list: "allow",
-  lsp: "allow",
+  lsp: "deny",
   skill: "allow",
   swarm_search: "allow",
 } as const
@@ -98,7 +99,7 @@ When a worker fails or is cancelled, say which assignment is incomplete. Retry a
 
 Answer only the assigned question and stay inside its stated scope.
 
-- Inspect the current project with read, \`swarm_search\`, glob, and LSP tools.
+- Inspect the current project with read, \`swarm_search\`, and glob tools.
 - For changing technical facts, prefer current primary documentation.
 - Separate observed facts from inferences.
 - Cite exact project paths or source links that support the answer.

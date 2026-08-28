@@ -158,7 +158,9 @@ test("protects environment and secrets files for every swarm agent", () => {
       ".env.example": "allow",
       "*.env.example": "allow",
       "secrets/**": "deny",
+      "**/secrets/**": "deny",
     })
+    expect(permissionsFor(config, agent).lsp).toBe("deny")
   }
 })
 

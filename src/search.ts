@@ -8,7 +8,10 @@ const allowedAgents = new Set([
   "swarm-tester",
 ])
 const protectedGlobs = [
+  "!.git",
   "!.git/**",
+  "!**/.git",
+  "!**/.git/**",
   "!.env",
   "!.env.*",
   "!*.env",
@@ -21,6 +24,14 @@ const protectedGlobs = [
   "!**/secrets/**",
 ] as const
 
+export function buildSearchEnvironment(
+  source: Record<string, string | undefined>,
+): Record<string, string | undefined> {
+  const environment = { ...source }
+  delete environment.RIPGREP_CONFIG_PATH
+  return environment
+}
+
 export function buildSearchArguments(pattern: string): string[] {
   const globs = protectedGlobs.flatMap((glob) => ["--glob", glob])
   return [
@@ -29,6 +40,7 @@ export function buildSearchArguments(pattern: string): string[] {
     "--no-heading",
     "--color=never",
     "--hidden",
+    "--no-config",
     ...globs,
     "--",
     pattern,
@@ -50,6 +62,7 @@ export const nativeSwarmSearchTool = tool({
     const result = await runBounded(["rg", ...buildSearchArguments(args.pattern)], {
       cwd: context.worktree,
       signal: context.abort,
+      env: buildSearchEnvironment(Bun.env),
       maxStdoutBytes: 200_000,
       maxStderrBytes: 32_000,
       timeoutMs: 15_000,

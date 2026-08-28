@@ -48,9 +48,10 @@ Every agent is deny-by-default. Reads of `.env`, environment-file variants,
 and `secrets/**` are denied, with example environment files explicitly allowed.
 Built-in grep is disabled because OpenCode authorizes its regex rather than the
 paths it reads. The replacement `swarm_search` tool fixes searches to the active
-worktree and excludes all environment files—including examples—and
-`secrets/**`; example environment files remain available only through the
-path-checked read tool.
+worktree, ignores inherited ripgrep configuration, and excludes Git metadata,
+all environment files—including examples—and `secrets/**`; example environment
+files remain available only through the path-checked read tool. Built-in LSP is
+also disabled because its permission is not path-aware.
 
 The reviewer has no shell access. Git inspection is implemented as fixed
 argument-array operations: arbitrary paths and flags are not accepted,
