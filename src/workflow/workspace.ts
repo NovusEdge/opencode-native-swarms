@@ -17,11 +17,10 @@ export type WorkspaceRequest = Readonly<{
   protectedPaths?: readonly string[]
   allowedModes?: readonly WorkspaceMode[]
   registered?: boolean
-  /** Internal marker set only after the Git adapter creates a worktree. */
-  trustedCreatedPath?: boolean
   registration?: Readonly<{ owner: string; path: string; repositoryId: string }>
   approvalOperation?: "workspace.patch"
   writeScopes?: readonly string[]
+  protectedBranches?: readonly string[]
 }>
 
 export type WorkspaceResult = Readonly<{
@@ -52,14 +51,18 @@ async function identity(git: WorkspaceGit, path: string): Promise<string | undef
   return value
 }
 async function status(git: WorkspaceGit, path: string): Promise<any> {
-  return typeof git.status === "function" ? await git.status(path) : { clean: true }
+  if (typeof git.status !== "function") throw new Error("Git status adapter unavailable")
+  const value = await git.status(path)
+  if (!value || typeof value !== "object") throw new Error("Git status evidence unavailable")
+  return value
 }
 
-export async function validateWorkspace(request: WorkspaceRequest, adapters: WorkspaceAdapters): Promise<WorkspaceResult> {
+async function validateWorkspaceInternal(request: WorkspaceRequest, adapters: WorkspaceAdapters, trustedCreatedPath = false): Promise<WorkspaceResult> {
   if (!request.repositoryRoot || badRoot(request.repositoryRoot)) throw new Error("Invalid repository root")
   if (request.allowedModes && !request.allowedModes.includes(request.mode)) throw new Error("Workspace mode is not allowed")
-  if (request.path !== undefined && (request.trustedCreatedPath ? !request.path.startsWith("/") : badPath(request.path))) throw new Error("Invalid workspace path")
+  if (request.path !== undefined && (trustedCreatedPath ? !request.path.startsWith("/") : badPath(request.path))) throw new Error("Invalid workspace path")
   if (request.mode === "existing" && !request.registration) throw new Error("Existing workspace is not registered")
+  if (request.branch && (request.protectedBranches ?? []).some((pattern) => { try { return !badPath(pattern) && picomatch(pattern, { dot: true, nocase: false })(request.branch!) } catch { return true } })) throw new Error("Protected branch")
   if (request.mode === "current" && request.write && !(request.workflowSelectsCurrent && request.installationAllowsWrites && request.launchApprovesWrites && request.approvalOperation === "workspace.patch" && request.capabilities?.includes("workspace.patch"))) throw new Error("Current workspace write approval required")
   for (const scope of request.protectedPaths ?? []) if (badPath(scope)) throw new Error("Invalid protected path scope")
   for (const scope of request.writeScopes ?? []) if (badPath(scope)) throw new Error("Invalid write path scope")
@@ -84,6 +87,9 @@ export async function validateWorkspace(request: WorkspaceRequest, adapters: Wor
   if (request.write && request.protectedPaths?.some((scope) => picomatch(scope, { dot: true, nocase: false })(request.path ?? "."))) throw new Error("Workspace path is protected")
   return { mode: request.mode, path: resolved, repositoryRoot: root, repositoryId: request.repositoryId, branch: request.branch, revision: currentStatus.revision ?? currentStatus.commit, dirtySnapshot: request.mode === "current" && currentStatus.clean === false ? (currentStatus.snapshot ?? currentStatus) : undefined, managed: request.mode === "worktree" }
 }
+export async function validateWorkspace(request: WorkspaceRequest, adapters: WorkspaceAdapters): Promise<WorkspaceResult> {
+  return validateWorkspaceInternal(request, adapters)
+}
 
 export async function resolveWorkspace(request: WorkspaceRequest, adapters: WorkspaceAdapters): Promise<WorkspaceResult> {
   if (request.mode === "worktree") {
@@ -92,7 +98,7 @@ export async function resolveWorkspace(request: WorkspaceRequest, adapters: Work
     const created = await adapters.git.createWorktree(request.repositoryRoot, request.branch)
     const path = typeof created === "string" ? created : created?.path
     if (!path) throw new Error("Worktree creation did not return a path")
-    return validateWorkspace({ ...request, path, trustedCreatedPath: true, registration: { owner: "opencode-native-swarms", path, repositoryId: request.repositoryId } }, adapters)
+    return validateWorkspaceInternal({ ...request, path, registration: { owner: "opencode-native-swarms", path, repositoryId: request.repositoryId } }, adapters, true)
   }
   return validateWorkspace(request, adapters)
 }
@@ -133,15 +139,27 @@ export async function cleanupWorkspace(workspace: Readonly<Partial<WorkspaceResu
   const owner = await adapters.git.ownership(resolved)
   if (owner !== "opencode-native-swarms") return { cleaned: false, reason: "Workspace ownership mismatch", workspace: workspace.path }
   if (typeof adapters.git.removeWorktree !== "function" && typeof adapters.git.deleteWorktree !== "function") return { cleaned: false, reason: "Cleanup adapter unavailable", workspace: workspace.path }
+  const removalBoundary = adapters.git.removalBoundary
+  if (typeof removalBoundary !== "function") return { cleaned: false, reason: "Removal boundary adapter unavailable", workspace: workspace.path }
+  await removalBoundary(resolved, root, workspace.repositoryId)
   await (adapters.git.removeWorktree ?? adapters.git.deleteWorktree)!(resolved)
   return { cleaned: true, workspace: workspace.path }
 }
 
 /** Final check performed immediately before a filesystem write or Git mutation. */
-export async function assertWriteBoundary(path: string, repositoryRoot: string, adapters: WorkspaceAdapters): Promise<string> {
+export async function assertWriteBoundary(path: string, repositoryRoot: string, adapters: WorkspaceAdapters, protectedPaths: readonly string[] = [], operationPaths: readonly string[] = [path]): Promise<string> {
   const root = await adapters.filesystem.realpath(repositoryRoot)
   const resolved = await adapters.filesystem.realpath(path)
   if (!contained(root, resolved)) throw new Error("Write containment check failed")
+  for (const operationPath of operationPaths) {
+    const opInput = operationPath.startsWith("/") ? operationPath : `${root}/${operationPath}`
+    const op = await adapters.filesystem.realpath(opInput)
+    if (!contained(root, op)) throw new Error("Write operation containment check failed")
+    const relativePath = op.slice(root.length).replace(/^\//, "") || "."
+    for (const scope of protectedPaths) {
+      try { if (badPath(scope) || picomatch(scope, { dot: true, nocase: false })(relativePath)) throw new Error("Protected write path") } catch (error) { if (error instanceof Error && error.message === "Protected write path") throw error; throw new Error("Malformed protected path scope") }
+    }
+  }
   const boundary = (adapters.filesystem as any).beforeWrite
   if (typeof boundary !== "function") throw new Error("Write boundary adapter unavailable")
   const checked = await boundary(resolved, root)
@@ -149,12 +167,15 @@ export async function assertWriteBoundary(path: string, repositoryRoot: string, 
   return checked ?? resolved
 }
 
-export async function validateCommit(input: Readonly<{ workspace: WorkspaceResult; capabilities: readonly Capability[]; approved: boolean; stagedPaths: readonly string[]; writeScopes: readonly string[]; protectedPaths?: readonly string[]; branch?: string }>, adapters: WorkspaceAdapters): Promise<Readonly<{ allowed: boolean; reason?: string }>> {
+export async function validateCommit(input: Readonly<{ workspace: WorkspaceResult; capabilities: readonly Capability[]; approved: boolean; stagedPaths?: readonly string[]; writeScopes: readonly string[]; protectedPaths?: readonly string[]; protectedBranches?: readonly string[]; branch?: string }>, adapters: WorkspaceAdapters): Promise<Readonly<{ allowed: boolean; reason?: string }>> {
   if (!input.capabilities.includes("git.commit") || !input.approved) return { allowed: false, reason: "Commit approval required" }
-  if (!input.branch || input.branch === "main" || input.branch === "master" || input.branch.startsWith("protected/")) return { allowed: false, reason: "Protected branch" }
+  if (!input.branch || (input.protectedBranches ?? ["main", "master", "protected/**"]).some((pattern) => { try { return badPath(pattern) || picomatch(pattern, { dot: true, nocase: false })(input.branch!) } catch { return true } })) return { allowed: false, reason: "Protected branch" }
   const fresh = await status(adapters.git, input.workspace.path)
-  const checked = validateStagedPaths(input.stagedPaths, input.writeScopes, input.protectedPaths)
+  if (typeof adapters.git.stagedPaths !== "function") return { allowed: false, reason: "Fresh staged-path evidence unavailable" }
+  const staged = await adapters.git.stagedPaths(input.workspace.path)
+  if (!Array.isArray(staged) || staged.some((path: unknown) => typeof path !== "string")) return { allowed: false, reason: "Fresh staged-path evidence unavailable" }
+  const checked = validateStagedPaths(staged, input.writeScopes, input.protectedPaths)
   if (!checked.allowed || fresh.clean === false) return { allowed: false, reason: checked.reason ?? "Workspace has unrecorded changes" }
-  await assertWriteBoundary(input.workspace.path, input.workspace.repositoryRoot, adapters)
+  await assertWriteBoundary(input.workspace.path, input.workspace.repositoryRoot, adapters, input.protectedPaths, staged)
   return { allowed: true }
 }

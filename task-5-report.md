@@ -21,3 +21,8 @@ roots/scopes reject malformed POSIX forms; protected writes, explicit
 `workspace.patch` approval, structured handoff evidence, fresh cleanup checks,
 and the injected final write boundary are enforced. `validateCommit` requires
 `git.commit`, approval, a fresh staged-path check, and an unprotected branch.
+
+Final review follow-up removes the public trusted-path escape hatch, requires
+fresh status and staged-path evidence, enforces protected operation paths at
+the write boundary, applies configured branch protection across modes, and
+requires a final adapter removal boundary before cleanup.
