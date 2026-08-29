@@ -4,7 +4,7 @@ export const workflowCommand = {
   description: "Validate, run, inspect, or manage a workflow",
   agent: "workflow-director",
   subtask: false,
-  template: "Manage the workflow using only the validated subcommand and arguments:\n$ARGUMENTS",
+  template: "Manage the workflow using only the validated subcommand and arguments. Map validate/run/status/cancel/resume/cleanup to workflow_validate/workflow_launch/workflow_status/workflow_cancel/workflow_resume/workflow_cleanup respectively.\n$ARGUMENTS",
 } satisfies NonNullable<Config["command"]>[string]
 
 export const WORKFLOW_SUBCOMMANDS = ["validate", "run", "status", "cancel", "resume", "cleanup"] as const

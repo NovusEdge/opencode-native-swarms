@@ -85,6 +85,10 @@ export function createWorkflowTools(options: ToolOptions): Record<string, ToolDe
     if (!checked.success) throw new Error("workflow_command requires a structured command")
     const binding = options.runtime.binding?.(context.sessionID)
     if (!binding || binding.runId !== args.runID || binding.stepId !== args.stepID || args.sessionID !== context.sessionID) throw new Error("workflow_command scope mismatch")
+    const approved = (binding as any).approvedCommand
+    if (approved && JSON.stringify(approved) !== JSON.stringify(checked.data)) throw new Error("workflow_command command mismatch")
+    const expectedToken = (binding as any).approvalToken
+    if (expectedToken && args.approvalToken !== expectedToken) throw new Error("workflow_command token mismatch")
     if (options.commandBinding) return json(await options.commandBinding({ ...args, command: checked.data, policyHash: binding.policyHash }, context))
     if (!options.command) throw new Error("workflow_command executor unavailable")
     return json(await options.command({ ...args, command: checked.data }, context))

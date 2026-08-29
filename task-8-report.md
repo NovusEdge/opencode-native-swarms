@@ -20,6 +20,10 @@ fresh state parent directories, forwarded bound policy hashes through
 `workflow_command`, and made broker tokens metadata-bound and single-use.
 The final gate passed with 19 focused tests and typecheck.
 
+The final integration pass added exact approved-command/token mismatch tests
+and lifecycle command validation coverage. Final gate: 21 focused tests passed
+and typecheck passed.
+
 Review follow-up connected `NativeSwarmsPlugin` to native session and state
 adapters, enforced structured run-scoped commands, added caller-abort approval
 handling and richer approval summaries, validated run IDs for `/workflow`, and

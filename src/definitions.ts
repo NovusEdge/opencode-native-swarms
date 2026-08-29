@@ -174,6 +174,6 @@ Use asynchronous workers only for independent, non-overlapping work. Launch at m
     description: "Validate, run, inspect, or manage a workflow.",
     agent: "workflow-director",
     subtask: false,
-    template: "Manage the workflow using only the validated subcommand and arguments:\n\n$ARGUMENTS",
+    template: "Manage the workflow using only the validated subcommand and arguments. Map validate/run/status/cancel/resume/cleanup to workflow_validate/workflow_launch/workflow_status/workflow_cancel/workflow_resume/workflow_cleanup respectively.\n\n$ARGUMENTS",
   },
 } satisfies CommandDefinitions

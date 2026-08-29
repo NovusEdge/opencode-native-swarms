@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test"
 import { createWorkflowTools } from "./tools"
+import { validateWorkflowCommand } from "./commands-ui"
 
 const context = (overrides: Record<string, unknown> = {}) => ({
   sessionID: "parent", messageID: "m", agent: "user", directory: "/repo", worktree: "/repo",
@@ -61,4 +62,18 @@ test("workflow_command invokes the bound command executor with token and exact s
   expect(received.approvalToken).toBe("token")
   expect(received.command.executable).toBe("bun")
   expect(received.policyHash).toBe("p")
+})
+
+test("workflow_command rejects mismatched approved argv or token", async () => {
+  const runtime = { binding: () => ({ runId: "r", stepId: "s", sessionID: "child", policyHash: "p", approvedCommand: { executable: "bun", argv: ["run", "check"], cwd: ".", env: [] }, approvalToken: "good" }) } as any
+  const tools = createWorkflowTools({ runtime, commandBinding: async () => "executed" })
+  const base = { sessionID: "child", runID: "r", stepID: "s", command: { executable: "bun", argv: ["run", "check"], cwd: ".", env: [] } }
+  await expect(tools.workflow_command.execute({ ...base, approvalToken: "bad" }, context({ sessionID: "child" }))).rejects.toThrow(/token/i)
+  await expect(tools.workflow_command.execute({ ...base, approvalToken: "good", command: { ...base.command, argv: ["run", "test"] } }, context({ sessionID: "child" }))).rejects.toThrow(/command/i)
+})
+
+test("workflow command accepts lifecycle verbs and stable run-id errors", () => {
+  for (const verb of ["validate", "run", "status", "cancel", "resume", "cleanup"] as const) expect(validateWorkflowCommand(`${verb}${["status", "cancel", "resume", "cleanup"].includes(verb) ? " run_1" : ""}`).subcommand).toBe(verb)
+  expect(() => validateWorkflowCommand("status bad/id")).toThrow("Malformed workflow run ID")
+  expect(() => validateWorkflowCommand("unknown")).toThrow("Unknown /workflow subcommand")
 })
