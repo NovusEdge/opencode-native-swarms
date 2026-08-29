@@ -9,6 +9,7 @@ type NativeAgentDefinition = {
   color: string
   permission: Record<string, PermissionRule>
   prompt: string
+  tools?: readonly string[]
 }
 
 const localInspectionPermissions = {
@@ -41,7 +42,18 @@ const testCommandPermissions = {
   "go test ./...": "allow",
 } as const
 
+/** Safe reserved definition used by the runtime and injected unless user-owned. */
+export const reservedWorkflowAgent = {
+  description: "Run one approved workflow step with no built-in tools.",
+  mode: "subagent" as const,
+  color: "#777777",
+  permission: { "*": "deny", workflow_command: "allow" } as const,
+  tools: ["workflow_command"],
+  prompt: "Execute only the approved workflow step and return its declared structured outputs.",
+}
+
 export const nativeSwarmAgents = {
+  "native-swarms-workflow-step": reservedWorkflowAgent,
   "workflow-director": {
     description:
       "Direct a bounded swarm of non-writing agents for research, review, and trusted-project testing while the parent conversation remains available.",
@@ -157,5 +169,11 @@ export const nativeSwarmCommands = {
 $ARGUMENTS
 
 Use asynchronous workers only for independent, non-overlapping work. Launch at most four workers at once, keep the parent conversation available, and synthesize only results that were actually delivered. This stage may research, review, and run narrowly allowed tests; it must not dispatch file edits.`,
+  },
+  workflow: {
+    description: "Validate, run, inspect, or manage a workflow.",
+    agent: "workflow-director",
+    subtask: false,
+    template: "Manage the workflow using only the validated subcommand and arguments:\n\n$ARGUMENTS",
   },
 } satisfies CommandDefinitions
