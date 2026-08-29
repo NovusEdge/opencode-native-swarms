@@ -19,6 +19,7 @@ export const expectedPackageFiles = [
   "src/workflow/runtime.ts",
   "src/workflow/tools.ts",
   "src/workflow/commands-ui.ts",
+  "src/workflow/picomatch.d.ts",
   "src/workflow/index.ts",
 ] as const
 

@@ -139,7 +139,7 @@ the full checkout at any time with `bun run hooks:run`. CI repeats those checks,
 validates the published package contents, and runs a full repository Gitleaks
 scan.
 
-To inspect the fully resolved configuration without invoking a model:
+To inspect the fully resolved configuration without invoking a model. The installation also includes the `/workflow` command and its reserved internal workflow-step agent:
 
 ```bash
 OPENCODE_CONFIG_CONTENT='{"plugin":["/absolute/path/to/opencode-native-swarms"]}' \

@@ -7,7 +7,7 @@ export const workflowCommand = {
   template: "Manage the workflow using only the validated subcommand and arguments. Map validate/run/status/cancel/resume/cleanup to workflow_validate/workflow_launch/workflow_status/workflow_cancel/workflow_resume/workflow_cleanup respectively.\n$ARGUMENTS",
 } satisfies NonNullable<Config["command"]>[string]
 
-export const WORKFLOW_SUBCOMMANDS = ["validate", "run", "status", "cancel", "resume", "cleanup"] as const
+export const WORKFLOW_SUBCOMMANDS = ["validate", "run", "inspect", "status", "cancel", "resume", "cleanup"] as const
 export function validateWorkflowCommand(argumentsText: string): { subcommand: typeof WORKFLOW_SUBCOMMANDS[number]; arguments: string } {
   const [subcommand, ...rest] = argumentsText.trim().split(/\s+/)
   if (!(WORKFLOW_SUBCOMMANDS as readonly string[]).includes(subcommand)) throw new Error("Unknown /workflow subcommand")

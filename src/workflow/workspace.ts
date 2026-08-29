@@ -62,7 +62,7 @@ async function validateWorkspaceInternal(request: WorkspaceRequest, adapters: Wo
   if (request.allowedModes && !request.allowedModes.includes(request.mode)) throw new Error("Workspace mode is not allowed")
   if (request.path !== undefined && (trustedCreatedPath ? !request.path.startsWith("/") : badPath(request.path))) throw new Error("Invalid workspace path")
   if (request.mode === "existing" && !request.registration) throw new Error("Existing workspace is not registered")
-  if (request.branch && (request.protectedBranches ?? []).some((pattern) => { try { return !badPath(pattern) && picomatch(pattern, { dot: true, nocase: false })(request.branch!) } catch { return true } })) throw new Error("Protected branch")
+  if (request.branch && (request.protectedBranches ?? []).some((pattern) => { try { return badPath(pattern) || picomatch(pattern, { dot: true, nocase: false })(request.branch!) } catch { return true } })) throw new Error("Protected branch")
   if (request.mode === "current" && request.write && !(request.workflowSelectsCurrent && request.installationAllowsWrites && request.launchApprovesWrites && request.approvalOperation === "workspace.patch" && request.capabilities?.includes("workspace.patch"))) throw new Error("Current workspace write approval required")
   for (const scope of request.protectedPaths ?? []) if (badPath(scope)) throw new Error("Invalid protected path scope")
   for (const scope of request.writeScopes ?? []) if (badPath(scope)) throw new Error("Invalid write path scope")
@@ -70,7 +70,6 @@ async function validateWorkspaceInternal(request: WorkspaceRequest, adapters: Wo
   const candidate = request.path ? (request.path.startsWith("/") ? request.path : `${root}/${relative(request.path)}`) : root
   const resolved = await adapters.filesystem.realpath(candidate)
   if (!contained(root, resolved)) throw new Error("Workspace containment check failed")
-  if (await adapters.filesystem.isSymlink(candidate) && !contained(root, resolved)) throw new Error("Workspace symlink containment check failed")
   const actualIdentity = await identity(adapters.git, resolved)
   if (actualIdentity !== undefined && actualIdentity !== request.repositoryId) throw new Error("Workspace repository identity mismatch")
   if (request.mode === "existing") {

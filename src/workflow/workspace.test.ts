@@ -37,6 +37,9 @@ describe("workspace safety", () => {
     expect(validateStagedPaths(["src/a.ts", ".env"], ["src/**"], [".env"])).toMatchObject({ allowed: false })
     const result = await cleanupWorkspace({ path: "/repo", managed: true, failed: true, status: { clean: false } }, { filesystem: fs(), git: git() })
     expect(result.cleaned).toBe(false)
+    const dirty = await cleanupWorkspace({ path: "/repo", managed: true, repositoryRoot: "/repo", repositoryId: "repo-1" }, { filesystem: fs(), git: git({ status: async () => ({ clean: false }) }) })
+    expect(dirty.cleaned).toBe(false)
+    expect(dirty.reason).toMatch(/unrecorded|unpushed|dirty/i)
   })
 
   test("rejects public absolute paths and protected final targets", async () => {

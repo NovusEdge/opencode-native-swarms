@@ -6,6 +6,7 @@ import type { RepositoryStateStore } from "./state"
 
 export const RESERVED_AGENT = "native-swarms-workflow-step"
 const reservedAgentDefinition = { description: "Run one approved workflow step with no built-in tools.", mode: "subagent", color: "#777777", permission: { "*": "deny", workflow_command: "allow" }, tools: { workflow_command: true }, prompt: "Execute only the approved workflow step and return its declared structured outputs." }
+const encoder = new TextEncoder()
 const stable = (v: any): string => Array.isArray(v) ? `[${v.map(stable).join(",")}]` : v && typeof v === "object" ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${stable(v[k])}`).join(",")}}` : JSON.stringify(v)
 const RESERVED_AGENT_HASH = createHash("sha256").update(stable(reservedAgentDefinition)).digest("hex")
 const BUILTIN_TOOLS = new Set(["bash", "read", "edit", "grep", "webfetch", "task", "external_directory"])
@@ -48,7 +49,7 @@ function outputFromMessages(messages: readonly SessionMessage[], step: WorkflowS
     try { return JSON.parse(p) } catch { return p }
   }).find((p: unknown) => p && typeof p === "object")
   if (!candidate) throw new Error(`Step ${step.id} returned no structured output`)
-  if (new TextEncoder().encode(JSON.stringify(candidate)).byteLength > step.limits.maxOutputBytes) throw new Error(`Output exceeds limit: ${step.id}`)
+  if (encoder.encode(JSON.stringify(candidate)).byteLength > step.limits.maxOutputBytes) throw new Error(`Output exceeds limit: ${step.id}`)
   const result: Record<string, OutputValue> = {}
   for (const declaration of step.outputs) {
     const value = (candidate as any)[declaration.name]

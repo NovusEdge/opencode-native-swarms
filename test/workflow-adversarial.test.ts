@@ -76,6 +76,11 @@ test("model output cannot forge runtime status", async () => {
   const runtime = createWorkflowRuntime({ state, sessions, registerToolHook: () => {}, consumeApproval: async () => true, agent: { name: RESERVED_AGENT, definition: { description: "Run one approved workflow step with no built-in tools.", mode: "subagent", color: "#777777", permission: { "*": "deny", workflow_command: "allow" }, tools: { workflow_command: true }, prompt: "Execute only the approved workflow step and return its declared structured outputs." } } })
   const approval: any = { token: "forged-token", workflowHash: hash, policyHash: hash, singleUse: true, summary: {} }
   const { runId } = await runtime.launch(plan, approval)
-  await new Promise((resolve) => setTimeout(resolve, 10))
-  expect((await runtime.status(runId)).state).toBe("failed")
+  const deadline = Date.now() + 2000
+  let runState = (await runtime.status(runId)).state
+  while (runState !== "failed" && runState !== "succeeded" && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    runState = (await runtime.status(runId)).state
+  }
+  expect(runState).toBe("failed")
 })
