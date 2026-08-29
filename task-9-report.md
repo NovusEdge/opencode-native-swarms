@@ -42,3 +42,15 @@ The shortened runtime fixtures were corrected to import the canonical
 - `bun run package:check`: pass.
 - `uvx --from pre-commit==4.6.2 pre-commit run --all-files`: pass — all hooks,
   including Bun tests and typecheck.
+
+## Review regression coverage
+
+- Added a direct amendment-laundering test proving an old approval cannot resume
+  a changed workflow.
+- Added a completed-session forged-output test; undeclared output keys now fail
+  closed instead of being silently ignored.
+- Added package regression assertions for workflow tests and `.superpowers`
+  artifacts.
+
+Final rerun: `bun run check` passed with 104 tests and 0 failures;
+`bun run package:check` passed; pinned pre-commit passed all hooks.

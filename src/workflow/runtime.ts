@@ -57,6 +57,7 @@ function outputFromMessages(messages: readonly SessionMessage[], step: WorkflowS
     if (declaration.type !== type && !(declaration.type === "json" && typeof value === "object")) throw new Error(`Invalid output type: ${step.id}.${declaration.name}`)
     result[declaration.name] = { type: declaration.type, value }
   }
+  for (const key of Object.keys(candidate as object)) if (!step.outputs.some((declaration) => declaration.name === key)) throw new Error(`Unexpected output: ${step.id}.${key}`)
   return result
 }
 

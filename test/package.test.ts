@@ -21,3 +21,8 @@ test("reports missing and unexpected package files", () => {
     "missing: LICENSE; unexpected: test/config.test.ts",
   )
 })
+
+test("rejects workflow tests and local superpowers artifacts", () => {
+  expect(() => assertPackageFiles([...expectedPackageFiles, "src/workflow/runtime.test.ts"])).toThrow(/excluded/i)
+  expect(() => assertPackageFiles([...expectedPackageFiles, ".superpowers/sdd/state.json"])).toThrow(/excluded/i)
+})

@@ -42,6 +42,14 @@ describe("workflow runtime", () => {
     await createWorkflowRuntime(opts).launch(plan([step("a")]), approval)
     await expect(createWorkflowRuntime(opts).launch(plan([step("a")]), approval)).rejects.toThrow()
   })
+  test("does not let an amendment reuse the prior approval token", async () => {
+    const h = harness(); const changedHash = "c".repeat(64)
+    const amendedPlan = plan([step("a")]); amendedPlan.workflowHash = changedHash; amendedPlan.policyHash = changedHash
+    const runtime = createWorkflowRuntime({ state: h.state, sessions: h.adapter, registerToolHook: () => {}, consumeApproval: async () => true, amend: async () => ({ plan: amendedPlan, summary: {} as any }), agent: { name: RESERVED_AGENT, definition: reservedWorkflowAgent } })
+    const { runId } = await runtime.launch(plan([step("a")]), approval)
+    await runtime.amend(runId, { steps: [{ id: "a", prompt: "changed" }] })
+    await expect(runtime.resume(runId, approval)).rejects.toThrow(/approval/i)
+  })
   test("cancellation during session creation never prompts", async () => {
     const h = harness(); let release!: () => void; const gate = new Promise<void>((r) => { release = r }); let prompted = 0
     const sessions = { ...h.adapter, create: async () => { await gate; return { sessionID: "late" } }, promptAsync: async () => { prompted++ } }
