@@ -103,7 +103,7 @@ export function createWorkflowTools(options: ToolOptions): Record<string, ToolDe
     workflow_wait: delegated("wait", (a) => options.runtime.wait(a.runId, a.timeoutMs)),
     workflow_cancel: delegated("cancel", (a) => options.runtime.cancel(a.runId)),
     workflow_amend: tool({ description: "Amend a workflow", args: { runId: z.string().regex(/^[A-Za-z0-9_-]+$/), workflow: z.unknown() }, execute: async (a) => json(await options.runtime.amend(a.runId, a.workflow)) }),
-     workflow_resume: tool({ description: "Resume a workflow", args: { runId: z.string().regex(/^[A-Za-z0-9_-]+$/), approval: z.object({ token: z.string(), workflowHash: z.string(), policyHash: z.string(), singleUse: z.boolean().refine((value) => value, { message: "singleUse must be true" }), summary: z.any() }) }, execute: async (a) => json(await options.runtime.resume(a.runId, a.approval as LaunchApproval)) }),
+    workflow_resume: tool({ description: "Resume a workflow", args: { runId: z.string().regex(/^[A-Za-z0-9_-]+$/), approval: z.object({ token: z.string(), workflowHash: z.string(), policyHash: z.string(), singleUse: z.boolean().refine((value) => value, { message: "singleUse must be true" }), summary: z.any() }) }, execute: async (a) => json(await options.runtime.resume(a.runId, a.approval as LaunchApproval)) }),
     workflow_cleanup: delegated("cleanup", (a) => options.runtime.cleanup(a.runId)),
   }
 }
