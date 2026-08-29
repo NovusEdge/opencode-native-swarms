@@ -17,3 +17,10 @@ Verification:
 - `bun test src/workflow/tools.test.ts test/config.test.ts` — workflow tests
   pass; the legacy config assertion still expects only `/swarm` and therefore
   fails now that the required `/workflow` command is registered.
+
+Follow-up gate fix updated `test/config.test.ts` to assert additive `/workflow`
+registration, reserved-agent registration, and preservation of user-owned
+reserved agent and `/workflow` command definitions. Final batched verification:
+
+- `bun test src/workflow/tools.test.ts test/config.test.ts` — 15 passed
+- `bun run typecheck` — passed
