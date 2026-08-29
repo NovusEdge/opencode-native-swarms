@@ -159,7 +159,7 @@ export function createWorkflowRuntime(options: RuntimeOptions): WorkflowRuntime 
       const after = await get(runId)
       if (after.steps.every((s) => s.state === "succeeded" || s.state === "skipped") && !terminal(after.state)) await update(runId, (r) => ({ ...r, state: "succeeded", updatedAt: iso(now) }))
     } catch (e) { if (!cancelled.has(runId)) await failStep(runId, step.id, errorText(e)) }
-    finally { set.delete(session.sessionID); set.delete(reservation); bindings.delete(session.sessionID); wake(runId); await schedule(runId) }
+    finally { set.delete(session.sessionID); set.delete(reservation); wake(runId); await schedule(runId) }
   }
   const launch = async (plan: WorkflowPlan, approval: LaunchApproval) => {
     if (!options.registerToolHook) throw new Error("Host tool enforcement unavailable")
@@ -192,7 +192,7 @@ export function createWorkflowRuntime(options: RuntimeOptions): WorkflowRuntime 
     await update(runId, (r) => ({ ...r, state: "running", updatedAt: iso(now) })); cancelled.delete(runId); void schedule(runId); return get(runId)
   }
   const cleanup = async (runId: string) => { const r = await get(runId), workspaces = ((r as any).workspaces ?? workspaceEvidence.get(runId)) as readonly WorkspaceResult[] | undefined; if (!workspaces?.length || !options.workspace) return { cleaned: false, reason: "Workspace evidence unavailable" } as CleanupResult; let result: CleanupResult = { cleaned: true }; for (const workspace of workspaces) { const next = await cleanupWorkspace({ ...workspace, failed: r.state === "failed", cancelled: r.state === "cancelled" }, options.workspace); if (!next.cleaned) return next; result = next } return result }
-  const beforeTool = (id: string, tool: string) => { if (!bindings.has(id)) throw new Error("Unbound workflow session"); if (BUILTIN_TOOLS.has(tool)) throw new Error("Built-in tool denied for workflow session") }
+  const beforeTool = (id: string, tool: string) => { if (!bindings.has(id)) return; if (BUILTIN_TOOLS.has(tool)) throw new Error("Built-in tool denied for workflow session") }
   if (options.registerToolHook) options.registerToolHook(({ sessionID, tool }) => beforeTool(sessionID, tool))
   return { launch, status, wait, cancel, amend, resume, cleanup, binding: (id) => bindings.get(id), beforeTool }
 }

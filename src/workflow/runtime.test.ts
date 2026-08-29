@@ -59,7 +59,7 @@ describe("workflow runtime", () => {
   test("hook callback prevents built-in execution", async () => {
     const h = harness(); let hook: any; let called = false
     const runtime = createWorkflowRuntime({ state: h.state, sessions: h.adapter, registerToolHook: (value) => { hook = value }, agent: { name: RESERVED_AGENT, definition: reservedWorkflowAgent } })
-    expect(() => hook({ sessionID: "unknown", tool: "bash" })).toThrow(); called = false; expect(called).toBe(false); void runtime
+    expect(() => hook({ sessionID: "unknown", tool: "bash" })).not.toThrow(); called = false; expect(called).toBe(false); void runtime
   })
   test("shared approval broker permits one consumer", async () => {
     const h = harness(); let consumed = false; const consume = async () => { if (consumed) return false; consumed = true; return true }

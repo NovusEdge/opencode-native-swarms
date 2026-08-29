@@ -20,6 +20,11 @@ fresh state parent directories, forwarded bound policy hashes through
 `workflow_command`, and made broker tokens metadata-bound and single-use.
 The final gate passed with 19 focused tests and typecheck.
 
+Dogfood hardening changed the runtime guard to ignore unbound primary/director
+sessions while retaining built-in denial for bound workflow-step sessions. The
+bound session remains retained for host-hook enforcement after asynchronous step
+completion. Focused runtime/tools tests and typecheck pass.
+
 The final integration pass added exact approved-command/token mismatch tests
 and lifecycle command validation coverage. Final gate: 21 focused tests passed
 and typecheck passed.
