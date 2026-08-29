@@ -32,3 +32,13 @@ Implemented the v0.2.0 adversarial coverage, packaging, and documentation.
   canonical reserved-agent definition, then rerun the full gate.
 - Execute installed-plugin dogfood and replace pending entries in
   `docs/dogfood/v0.2.0.md` before public tagging.
+
+## Final full-gate rerun
+
+The shortened runtime fixtures were corrected to import the canonical
+`reservedWorkflowAgent`; runtime security validation was not weakened.
+
+- `bun run check`: pass — 102 tests, 0 failures, TypeScript clean.
+- `bun run package:check`: pass.
+- `uvx --from pre-commit==4.6.2 pre-commit run --all-files`: pass — all hooks,
+  including Bun tests and typecheck.
