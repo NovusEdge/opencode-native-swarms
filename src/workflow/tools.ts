@@ -11,6 +11,7 @@ type ToolOptions = Readonly<{
   plan?: (value: unknown, context: ToolContext) => Promise<WorkflowPlan>
   save?: (value: unknown, context: ToolContext) => Promise<unknown>
   command?: (input: any, context: ToolContext) => Promise<unknown>
+  commandBinding?: (input: any, context: ToolContext) => Promise<unknown>
   approvalTimeoutMs?: number
   broker?: ApprovalBroker
 }>
@@ -19,12 +20,14 @@ const json = (value: unknown) => ({ output: JSON.stringify(value), title: "Workf
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex")
 const lifecycle = z.object({ runId: z.string().regex(/^[A-Za-z0-9_-]+$/) }).strict()
 const workflowInput = z.object({ workflow: z.unknown() }).strict()
+const commandSpec = z.object({ executable: z.string().min(1), argv: z.array(z.string()), cwd: z.string(), env: z.array(z.string()) }).strict()
 
 export type ApprovalBroker = Readonly<{
   request(summary: ApprovalSummary, sessionID: string, context: ToolContext): Promise<Readonly<{ decision: PolicyDecision; token?: string }>>
   permissionAsk(input: any, output: { status: "ask" | "deny" | "allow" }): void
   event(input: any): void
   pending(): number
+  consume(token: string): boolean
 }>
 
 /** Correlates host permission callbacks without trusting their ordering. */
@@ -35,6 +38,8 @@ export function createApprovalBroker(options: Readonly<{ timeoutMs?: number }> =
     const requestID = randomUUID()
     const timer = setTimeout(() => { pending.delete(requestID); resolve({ decision: { allowed: false, layer: "approval", reason: "Approval reply timed out" } }) }, options.timeoutMs ?? 60_000)
     pending.set(requestID, { resolve: (decision) => { clearTimeout(timer); pending.delete(requestID); resolve({ decision, token: decision.allowed ? `${requestID}.${hash({ requestID, summary, sessionID })}` : undefined }) } })
+    const onAbort = () => { if (pending.has(requestID)) pending.get(requestID)!.resolve({ allowed: false, layer: "approval", reason: "Approval request aborted" }) }
+    if (context.abort.aborted) onAbort(); else context.abort.addEventListener("abort", onAbort, { once: true })
     try {
       const redacted = { ...summary, commands: summary.commands.map((c) => ({ executable: c.executable, argv: c.argv, cwd: c.cwd })) }
       await context.ask({ permission: "workflow.launch", patterns: [summary.workflowHash], always: [summary.workflowHash], metadata: { requestID, workflowHash: summary.workflowHash, policyHash: summary.policyHash, sessionID, summary: redacted } })
@@ -56,7 +61,8 @@ export function createApprovalBroker(options: Readonly<{ timeoutMs?: number }> =
     const status = event.status ?? event.properties?.status
     for (const item of pending.values()) if (item.permissionID === permissionID) item.resolve({ allowed: status === "allow", layer: "approval", reason: status === "allow" ? "Workflow launch approved" : "Workflow launch denied" })
   }
-  return { request, permissionAsk, event, pending: () => pending.size }
+  const consume = (token: string) => { if (consumed.has(token)) return false; if (!token.includes(".")) return false; consumed.add(token); return true }
+  return { request, permissionAsk, event, pending: () => pending.size, consume }
 }
 
 export function createWorkflowTools(options: ToolOptions): Record<string, ToolDefinition> {
@@ -66,18 +72,21 @@ export function createWorkflowTools(options: ToolOptions): Record<string, ToolDe
     const parsed = parseWorkflow(args.workflow)
     if (!parsed.value) return json(parsed)
     const plan = options.plan ? await options.plan(parsed.value, context) : ({ definition: parsed.value, steps: parsed.value.steps, policy: { hash: "" }, policyHash: "", workflowHash: parsed.value.hash, maxConcurrency: parsed.value.maxConcurrency } as unknown as WorkflowPlan)
-    const summary: ApprovalSummary = { workflowHash: plan.workflowHash, policyHash: plan.policyHash, capabilities: plan.policy.capabilities, modes: plan.definition.workspace.allowedModes, commands: [...plan.definition.commands.allow, ...plan.steps.flatMap((s) => s.commands)], reasons: ["Launch a validated workflow"] }
+    const summary: ApprovalSummary = { workflowHash: plan.workflowHash, policyHash: plan.policyHash, source: context.directory, revision: 1, capabilities: plan.policy.capabilities, modes: plan.definition.workspace.allowedModes, workspace: plan.definition.workspace, agents: plan.steps.map(() => "native-swarms-workflow-step"), models: plan.steps.map((s) => s.model.mode === "alias" ? (s.model.alias ?? "alias") : s.model.mode), dependencies: plan.steps.map((s) => ({ id: s.id, dependsOn: s.dependsOn })), concurrency: plan.maxConcurrency, ceiling: plan.policy, paths: { read: plan.policy.readPaths, write: plan.policy.writePaths }, writeOperations: plan.steps.filter((s) => s.permissions.writePaths.length).map((s) => s.id), limits: plan.steps.map((s) => ({ id: s.id, ...s.limits })), commands: [...plan.definition.commands.allow, ...plan.steps.flatMap((s) => s.commands)], reasons: ["Launch a validated workflow"] }
     const approval = await broker.request(summary, context.sessionID, context)
     if (!approval.decision.allowed || !approval.token) return json({ error: approval.decision.reason ?? "Workflow launch denied" })
     const result = await options.runtime.launch(plan, { token: approval.token, workflowHash: plan.workflowHash, policyHash: plan.policyHash, singleUse: true, summary })
     return json({ ...result, approval: summary })
   } })
   const delegated = (name: string, fn: (args: any) => Promise<unknown>) => tool({ description: `Workflow ${name}`, args: { runId: z.string().regex(/^[A-Za-z0-9_-]+$/), ...(name === "wait" ? { timeoutMs: z.number().int().nonnegative().default(1000) } : {}) }, execute: async (args) => json(await fn(args)) })
-  const command = tool({ description: "Run an exact approved workflow command", args: { sessionID: z.string(), runID: z.string(), stepID: z.string(), command: z.unknown(), approvalToken: z.string().optional() }, execute: async (args, context) => {
+  const command = tool({ description: "Run an exact approved workflow command", args: { sessionID: z.string(), runID: z.string(), stepID: z.string(), command: commandSpec, approvalToken: z.string().optional() }, execute: async (args, context) => {
+    const checked = commandSpec.safeParse(args.command)
+    if (!checked.success) throw new Error("workflow_command requires a structured command")
     const binding = options.runtime.binding?.(context.sessionID)
     if (!binding || binding.runId !== args.runID || binding.stepId !== args.stepID || args.sessionID !== context.sessionID) throw new Error("workflow_command scope mismatch")
+    if (options.commandBinding) return json(await options.commandBinding({ ...args, command: checked.data }, context))
     if (!options.command) throw new Error("workflow_command executor unavailable")
-    return json(await options.command(args, context))
+    return json(await options.command({ ...args, command: checked.data }, context))
   } })
   return {
     workflow_validate: validate,

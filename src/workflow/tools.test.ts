@@ -35,3 +35,20 @@ test("approval broker requests workflow permission and denies a missing reply", 
   expect((await promise as any).output).toMatch(/timed out|denied/i)
   expect(asks[0].permission).toBe("workflow.launch")
 })
+
+test("approval broker observes abort and ignores duplicate replies", async () => {
+  const controller = new AbortController()
+  let metadata: any
+  const broker = (await import("./tools")).createApprovalBroker({ timeoutMs: 1000 })
+  const pending = broker.request({ workflowHash: "a", policyHash: "b", capabilities: [], modes: [], commands: [], reasons: [] }, "s", context({ abort: controller.signal, ask: async (input: any) => { metadata = input.metadata; broker.permissionAsk({ metadata, id: "p" }, { status: "ask" }) } }))
+  controller.abort()
+  expect((await pending).decision.allowed).toBe(false)
+  broker.event({ type: "permission.replied", permissionID: "p", status: "allow" })
+  expect(broker.pending()).toBe(0)
+})
+
+test("workflow_command validates structured command input before execution", async () => {
+  const runtime = { binding: () => ({ runId: "r", stepId: "s", sessionID: "child", policyHash: "p" }) } as any
+  const tools = createWorkflowTools({ runtime, command: async () => "executed" })
+  await expect(tools.workflow_command.execute({ sessionID: "child", runID: "r", stepID: "s", command: "bun run check" }, context({ sessionID: "child" }))).rejects.toThrow()
+})

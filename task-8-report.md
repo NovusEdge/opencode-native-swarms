@@ -14,6 +14,14 @@ Verification:
 
 - `bun test src/workflow/tools.test.ts` — 3 passed
 - `bun run typecheck` — passed
+
+Review follow-up connected `NativeSwarmsPlugin` to native session and state
+adapters, enforced structured run-scoped commands, added caller-abort approval
+handling and richer approval summaries, validated run IDs for `/workflow`, and
+preserved object-shaped OpenCode agent tool permissions. Final focused gate:
+
+- `bun test src/workflow/tools.test.ts test/config.test.ts` — 18 passed
+- `bun run typecheck` — passed
 - `bun test src/workflow/tools.test.ts test/config.test.ts` — workflow tests
   pass; the legacy config assertion still expects only `/swarm` and therefore
   fails now that the required `/workflow` command is registered.

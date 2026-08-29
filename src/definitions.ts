@@ -9,7 +9,7 @@ type NativeAgentDefinition = {
   color: string
   permission: Record<string, PermissionRule>
   prompt: string
-  tools?: readonly string[]
+  tools?: Readonly<Record<string, boolean>>
 }
 
 const localInspectionPermissions = {
@@ -48,7 +48,7 @@ export const reservedWorkflowAgent = {
   mode: "subagent" as const,
   color: "#777777",
   permission: { "*": "deny", workflow_command: "allow" } as const,
-  tools: ["workflow_command"],
+  tools: { workflow_command: true },
   prompt: "Execute only the approved workflow step and return its declared structured outputs.",
 }
 

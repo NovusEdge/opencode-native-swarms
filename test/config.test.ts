@@ -174,6 +174,12 @@ test("protects environment and secrets files for every swarm agent", () => {
   expect(permissionsFor(config, "native-swarms-workflow-step")["*"]).toBe("deny")
 })
 
+test("uses OpenCode's object-shaped agent tool permissions", () => {
+  const config: Config = {}
+  applyNativeSwarmsConfig(config)
+  expect(config.agent?.["native-swarms-workflow-step"]?.tools).toEqual({ workflow_command: true })
+})
+
 test("inherits models from OpenCode configuration", () => {
   const config: Config = {}
   applyNativeSwarmsConfig(config)

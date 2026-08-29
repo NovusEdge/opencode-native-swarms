@@ -5,6 +5,10 @@ import { nativeSwarmReadTool } from "./read"
 import { nativeSwarmSearchTool } from "./search"
 import { createWorkflowTools, createApprovalBroker } from "./workflow/tools"
 import { validateWorkflowCommand } from "./workflow/commands-ui"
+import { createWorkflowRuntime } from "./workflow/runtime"
+import { createRepositoryStateStore } from "./workflow/state"
+import { reservedWorkflowAgent } from "./definitions"
+import { promises as fs } from "node:fs"
 
 const unavailableRuntime = {
   async launch() { throw new Error("Workflow runtime is unavailable") },
@@ -17,9 +21,23 @@ const unavailableRuntime = {
   binding() { return undefined },
 }
 
-export const NativeSwarmsPlugin: Plugin = async () => {
+export const NativeSwarmsPlugin: Plugin = async (input) => {
   const broker = createApprovalBroker()
-  const workflowTools = createWorkflowTools({ runtime: unavailableRuntime, broker })
+  if (!input?.worktree || !(input as any).client?.session) {
+    return { tool: { swarm_git_inspect: nativeSwarmGitInspectTool, swarm_read: nativeSwarmReadTool, swarm_search: nativeSwarmSearchTool, ...createWorkflowTools({ runtime: unavailableRuntime, broker }) }, config: async (config) => { applyNativeSwarmsConfig(config) } }
+  }
+  const client: any = input.client as any
+  const sessions = {
+    async create(x: any) { const r = await client.session.create({ body: { title: x.title }, query: { directory: x.directory } }); return { sessionID: r.data?.id ?? r.id } },
+    async promptAsync(x: any) { await client.session.promptAsync({ path: { id: x.sessionID }, body: { agent: x.agent, system: x.system, parts: x.parts } }) },
+    async status(id: string) { const r = await client.session.status({ path: { id } }); return r.data ?? r },
+    async abort(id: string) { await client.session.abort({ path: { id } }) },
+    async messages(id: string) { const r = await client.session.messages({ path: { id } }); return r.data ?? r },
+  }
+  const filesystem: any = { realpath: (p: string) => fs.realpath(p), atomicWrite: async (p: string, d: string) => fs.writeFile(p, d), read: (p: string) => fs.readFile(p, "utf8"), isSymlink: async () => false, acquireLock: async () => ({ release: async () => {} }) }
+  const state = createRepositoryStateStore({ filesystem, environment: { get: (name) => process.env[name], homeDirectory: () => process.env.HOME ?? "" }, repository: { commonDirectory: input.worktree, metadata: { project: (input.project as any)?.id ?? input.directory } } })
+  const runtime = createWorkflowRuntime({ state, sessions, repositoryRoot: input.worktree, repositoryId: (input.project as any)?.id ?? input.directory, agent: { name: "native-swarms-workflow-step", definition: reservedWorkflowAgent }, registerToolHook: () => {}, consumeApproval: (token) => broker.consume(token) })
+  const workflowTools = createWorkflowTools({ runtime, broker })
   return {
     tool: {
     swarm_git_inspect: nativeSwarmGitInspectTool,

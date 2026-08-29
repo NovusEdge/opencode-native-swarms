@@ -5,13 +5,13 @@ import type { ApprovalSummary, CleanupResult, LaunchApproval, RunRecord, Session
 import type { RepositoryStateStore } from "./state"
 
 export const RESERVED_AGENT = "native-swarms-workflow-step"
-const reservedAgentDefinition = { description: "Run one approved workflow step with no built-in tools.", mode: "subagent", color: "#777777", permission: { "*": "deny", workflow_command: "allow" }, tools: ["workflow_command"], prompt: "Execute only the approved workflow step and return its declared structured outputs." }
+const reservedAgentDefinition = { description: "Run one approved workflow step with no built-in tools.", mode: "subagent", color: "#777777", permission: { "*": "deny", workflow_command: "allow" }, tools: { workflow_command: true }, prompt: "Execute only the approved workflow step and return its declared structured outputs." }
 const stable = (v: any): string => Array.isArray(v) ? `[${v.map(stable).join(",")}]` : v && typeof v === "object" ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${stable(v[k])}`).join(",")}}` : JSON.stringify(v)
 const RESERVED_AGENT_HASH = createHash("sha256").update(stable(reservedAgentDefinition)).digest("hex")
 const BUILTIN_TOOLS = new Set(["bash", "read", "edit", "grep", "webfetch", "task", "external_directory"])
 
 export type StepBinding = Readonly<{ runId: string; stepId: string; sessionID: string; policyHash: string; workspace?: WorkspaceResult }>
-export type ReservedAgent = Readonly<{ name?: string; definition: unknown; permissions?: unknown; tools?: readonly string[] }>
+export type ReservedAgent = Readonly<{ name?: string; definition: unknown; permissions?: unknown; tools?: readonly string[] | Readonly<Record<string, boolean>> }>
 export type RuntimeOptions = Readonly<{
   state: RepositoryStateStore
   sessions: SessionAdapter
@@ -66,10 +66,11 @@ function agentMatches(agent?: ReservedAgent): boolean {
   if (!value || typeof value !== "object") return false
   const permissions = value.permission ?? value.permissions
   const tools = agent.tools ?? value.tools
-  if (!permissions || !tools || !Array.isArray(tools)) return false
+  if (!permissions || !tools || (Array.isArray(tools) ? false : typeof tools !== "object")) return false
   if (createHash("sha256").update(stable(value)).digest("hex") !== RESERVED_AGENT_HASH) return false
   // Any built-in authority is unsafe, and workflow_command must be the only tool.
-  if (tools.some((tool: unknown) => tool !== "workflow_command")) return false
+  const names = Array.isArray(tools) ? tools : Object.entries(tools).filter(([, enabled]) => enabled).map(([name]) => name)
+  if (names.some((tool: unknown) => tool !== "workflow_command")) return false
   for (const name of [...BUILTIN_TOOLS]) {
     const permission = permissions[name]
     if (permission !== undefined && permission !== "deny" && !(permission && permission["*"] === "deny")) return false

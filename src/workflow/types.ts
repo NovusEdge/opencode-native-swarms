@@ -159,5 +159,5 @@ export type WorkflowAdapters = Readonly<{
 
 export type PolicyDecision = Readonly<{ allowed: boolean; layer?: string; rule?: string; reason?: string }>
 export type LaunchApproval = Readonly<{ token: string; workflowHash: string; policyHash: string; singleUse: true; summary: ApprovalSummary }>
-export type ApprovalSummary = Readonly<{ workflowHash: string; policyHash: string; capabilities: readonly Capability[]; modes: readonly WorkspaceMode[]; commands: readonly CommandSpec[]; reasons: readonly string[] }>
+export type ApprovalSummary = Readonly<{ workflowHash: string; policyHash: string; capabilities: readonly Capability[]; modes: readonly WorkspaceMode[]; commands: readonly CommandSpec[]; reasons: readonly string[]; source?: string; revision?: number; workspace?: unknown; agents?: readonly string[]; models?: readonly string[]; dependencies?: unknown; concurrency?: number; ceiling?: unknown; paths?: unknown; writeOperations?: unknown; limits?: unknown }>
 export type CleanupResult = Readonly<{ cleaned: boolean; reason?: string; workspace?: string }>
