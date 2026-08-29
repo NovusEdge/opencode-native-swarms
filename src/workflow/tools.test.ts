@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+import { z } from "zod"
 import { createWorkflowTools } from "./tools"
 import { validateWorkflowCommand } from "./commands-ui"
 
@@ -11,6 +12,18 @@ test("registers the complete workflow tool surface", () => {
   const runtime = Object.fromEntries(["status", "wait", "cancel", "amend", "resume", "cleanup", "launch"].map((name) => [name, async () => ({ runId: "r" })])) as any
   const tools = createWorkflowTools({ runtime })
   expect(Object.keys(tools).sort()).toEqual(["workflow_amend", "workflow_cancel", "workflow_cleanup", "workflow_command", "workflow_inspect", "workflow_launch", "workflow_resume", "workflow_save", "workflow_status", "workflow_validate", "workflow_wait"].sort())
+})
+
+test("uses a portable boolean schema while requiring single-use approval", () => {
+  const tools = createWorkflowTools({ runtime: {} as any })
+  const approval = (tools.workflow_resume as any).args.approval
+  const base = { token: "t", workflowHash: "w", policyHash: "p", summary: {} }
+
+  expect(approval.parse({ ...base, singleUse: true }).singleUse).toBe(true)
+  expect(() => approval.parse({ ...base, singleUse: false })).toThrow()
+  const schema = JSON.stringify(z.toJSONSchema(approval))
+  expect(schema).not.toContain('"const":true')
+  expect(schema).not.toContain('"enum":[true]')
 })
 
 test("delegates lifecycle calls and scopes command to the bound session", async () => {
