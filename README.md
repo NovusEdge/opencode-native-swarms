@@ -10,6 +10,36 @@ This is deliberately a non-writing first stage: it can research, review, and
 run narrow checks in trusted projects, but it cannot dispatch edits, commits,
 pushes, or external-service writes.
 
+## Workflow engine (v0.2.0)
+
+Workflows are strict schema-version `1` documents. Validate a document before
+launching it; unknown fields, malformed paths, shell command strings, cycles,
+and undeclared dependencies fail closed. Launch approval displays the source,
+revision, workflow and policy hashes, agents/models, capabilities, paths,
+commands, writers, and limits. Capabilities are intersected across installation,
+launch, workflow, and step policy layers, with explicit denies taking priority.
+
+Commands are structured executable/argv objects and run without a shell through
+the run-scoped `workflow_command` tool. Built-in tools, shell composition,
+remote Git operations, publication, merges, and external writes are unsupported.
+Exact commands can execute repository-owned scripts, so only launch workflows
+in projects you trust; an exact allow is not a sandbox.
+
+Workspaces support `read-only`, `current`, `worktree`, and registered `existing`
+modes. Writes require explicit mode and approvals plus path containment and
+symlink checks. Runs are persisted under the XDG state directory, keyed by
+repository and run ID. Use `/workflow validate`, `/workflow run`,
+`/workflow status`, `/workflow cancel`, `/workflow resume`, and
+`/workflow cleanup`; restart never resumes automatically. Resume revalidates
+revision, hashes, policy, and workspace and marks drifted runs stale. Cleanup
+refuses when it could discard changes or unpushed commits. Notifications are
+optional; persisted state is authoritative. The experimental background-agent
+feature must be enabled.
+
+Migration from `/swarm`: keep `/swarm` for its existing non-writing director;
+use `/workflow` when you need a persisted, approved DAG and explicit workspace
+and command policy.
+
 ## Requirements
 
 - OpenCode 1.18.25 or newer

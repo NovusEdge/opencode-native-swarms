@@ -9,6 +9,17 @@ export const expectedPackageFiles = [
   "src/process.ts",
   "src/read.ts",
   "src/search.ts",
+  "src/workflow/types.ts",
+  "src/workflow/schema.ts",
+  "src/workflow/policy.ts",
+  "src/workflow/commands.ts",
+  "src/workflow/workspace.ts",
+  "src/workflow/planner.ts",
+  "src/workflow/state.ts",
+  "src/workflow/runtime.ts",
+  "src/workflow/tools.ts",
+  "src/workflow/commands-ui.ts",
+  "src/workflow/index.ts",
 ] as const
 
 type PackResult = {
@@ -29,6 +40,8 @@ export function packageFileDifferences(actualFiles: string[]): {
 }
 
 export function assertPackageFiles(actualFiles: string[]): void {
+  const excluded = actualFiles.filter((path) => /(^|\/)(?:\.superpowers|src\/workflow\/.*\.test\.ts)(\/|$)/.test(path))
+  if (excluded.length > 0) throw new Error(`Package contains excluded files: ${excluded.join(", ")}`)
   const { missing, unexpected } = packageFileDifferences(actualFiles)
   if (missing.length === 0 && unexpected.length === 0) return
 
