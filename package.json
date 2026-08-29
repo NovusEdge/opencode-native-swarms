@@ -1,6 +1,6 @@
 {
   "name": "opencode-native-swarms",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Permission-scoped native background-agent workflows for OpenCode",
   "type": "module",
   "license": "MIT",
@@ -9,7 +9,25 @@
     "./server": "./src/index.ts"
   },
   "files": [
-    "src",
+    "src/config.ts",
+    "src/definitions.ts",
+    "src/git.ts",
+    "src/index.ts",
+    "src/process.ts",
+    "src/read.ts",
+    "src/search.ts",
+    "src/workflow/types.ts",
+    "src/workflow/schema.ts",
+    "src/workflow/policy.ts",
+    "src/workflow/commands.ts",
+    "src/workflow/workspace.ts",
+    "src/workflow/planner.ts",
+    "src/workflow/state.ts",
+    "src/workflow/runtime.ts",
+    "src/workflow/tools.ts",
+    "src/workflow/commands-ui.ts",
+    "src/workflow/picomatch.d.ts",
+    "src/workflow/index.ts",
     "README.md",
     "LICENSE"
   ],
@@ -31,5 +49,9 @@
   },
   "peerDependencies": {
     "@opencode-ai/plugin": ">=1.18.25 <2"
+  },
+  "dependencies": {
+    "picomatch": "4.0.2",
+    "zod": "4.1.8"
   }
 }

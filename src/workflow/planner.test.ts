@@ -1,0 +1,15 @@
+import { describe, expect, test } from "bun:test"
+import { planWorkflow, topologicalReadySteps, transitionStep, transitionWorkflow } from "./planner"
+import { compilePolicy } from "./policy"
+import { compileCommandPolicy } from "./commands"
+import type { WorkflowDefinition } from "./types"
+
+const policy = compilePolicy({ installation: { capabilities: ["repo.read", "workspace.patch"], deny: [], readPaths: ["**"], writePaths: ["**"] }, launch: { capabilities: ["repo.read", "workspace.patch"], deny: [], readPaths: ["**"], writePaths: ["**"] }, workflow: { capabilities: ["repo.read", "workspace.patch"], deny: [], readPaths: ["**"], writePaths: ["**"] }, step: { capabilities: ["repo.read", "workspace.patch"], deny: [], readPaths: ["**"], writePaths: ["**"] } })
+const commandPolicy = compileCommandPolicy({ installation: { default: "deny", allow: [], deny: [] }, workflow: { default: "deny", allow: [], deny: [] }, maxTimeoutSeconds: 10, maxOutputBytes: 100 })
+const definition = (steps: any[]): WorkflowDefinition => ({ schemaVersion: 1, name: "x", failurePolicy: "fail-fast", maxConcurrency: 2, permissions: { capabilities: ["repo.read"], deny: [], readPaths: ["**"], writePaths: [] }, workspace: { allowedModes: ["read-only", "current"], defaultMode: "read-only" }, commands: { default: "deny", allow: [], deny: [] }, steps, hash: "" })
+const step = (id: string, dependsOn: string[] = [], extra: any = {}) => ({ id, prompt: id, dependsOn, model: { mode: "configured" }, workspace: { mode: "read-only" }, permissions: { capabilities: ["repo.read"], deny: [], readPaths: ["**"], writePaths: [] }, commands: [], inputs: [], outputs: [], limits: { timeoutSeconds: 1, maxOutputBytes: 10, maxChildAgents: 0 }, ...extra })
+describe("workflow planner", () => {
+  test("returns stable topological order and ready steps", async () => { const plan = await planWorkflow({ definition: definition([step("b", ["a"]), step("a"), step("c")]), policy, commandPolicy }); expect(plan.steps.map((s) => s.id)).toEqual(["a", "b", "c"]); expect(topologicalReadySteps(plan, []).map((s) => s.id)).toEqual(["a", "c"]) })
+  test("rejects missing references, cycles, and mismatched outputs", async () => { await expect(planWorkflow({ definition: definition([step("a", ["nope"])]), policy, commandPolicy })).rejects.toThrow(/dependency/); await expect(planWorkflow({ definition: definition([step("a", ["b"]), step("b", ["a"])]), policy, commandPolicy })).rejects.toThrow(/cycle/); await expect(planWorkflow({ definition: definition([step("a", [], { outputs: [{ name: "x", type: "number", required: true }] }), step("b", ["a"], { inputs: [{ step: "a", output: "x", as: "x" }], outputs: [{ name: "x", type: "text", required: true }] })]), policy, commandPolicy })).rejects.toThrow(/mismatch/) })
+  test("enforces lifecycle transition legality", () => { expect(transitionWorkflow({ state: "draft" }, "awaiting-approval")).toBe("awaiting-approval"); expect(() => transitionWorkflow({ state: "draft" }, "running")).toThrow(/Illegal/); expect(transitionStep({ state: "queued" }, "ready")).toBe("ready"); expect(() => transitionStep({ state: "succeeded" }, "running")).toThrow(/Illegal/) })
+})

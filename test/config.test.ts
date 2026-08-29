@@ -15,16 +15,18 @@ test("adds native swarm agents and command to an empty config", () => {
   applyNativeSwarmsConfig(config)
 
   expect(Object.keys(config.agent ?? {}).sort()).toEqual([
+    "native-swarms-workflow-step",
     "swarm-researcher",
     "swarm-reviewer",
     "swarm-tester",
     "workflow-director",
   ])
-  expect(Object.keys(config.command ?? {})).toEqual(["swarm"])
+  expect(Object.keys(config.command ?? {}).sort()).toEqual(["swarm", "workflow"])
 })
 
 test("preserves colliding user definitions", () => {
   const agentNames = [
+    "native-swarms-workflow-step",
     "workflow-director",
     "swarm-researcher",
     "swarm-reviewer",
@@ -44,9 +46,13 @@ test("preserves colliding user definitions", () => {
     template: "Keep this command unchanged.",
     description: "User-owned command",
   }
+  const existingWorkflow = {
+    template: "Keep this workflow command unchanged.",
+    description: "User-owned workflow command",
+  }
   const config: Config = {
     agent: existingAgents,
-    command: { swarm: existingCommand },
+    command: { swarm: existingCommand, workflow: existingWorkflow },
   }
 
   applyNativeSwarmsConfig(config)
@@ -55,7 +61,8 @@ test("preserves colliding user definitions", () => {
     expect(config.agent?.[name]).toBe(existingAgents[name])
   }
   expect(config.command?.swarm).toBe(existingCommand)
-  expect(Object.keys(config.agent ?? {})).toHaveLength(4)
+  expect(config.command?.workflow).toBe(existingWorkflow)
+  expect(Object.keys(config.agent ?? {})).toHaveLength(5)
 })
 
 test("creates isolated definitions for each config application", () => {
@@ -159,11 +166,18 @@ test("protects environment and secrets files for every swarm agent", () => {
   const config: Config = {}
   applyNativeSwarmsConfig(config)
 
-  for (const agent of Object.keys(config.agent ?? {})) {
+  for (const agent of Object.keys(config.agent ?? {}).filter((name) => name !== "native-swarms-workflow-step")) {
     expect(permissionsFor(config, agent).read).toBe("deny")
     expect(permissionsFor(config, agent).swarm_read).toBe("allow")
     expect(permissionsFor(config, agent).lsp).toBe("deny")
   }
+  expect(permissionsFor(config, "native-swarms-workflow-step")["*"]).toBe("deny")
+})
+
+test("uses OpenCode's object-shaped agent tool permissions", () => {
+  const config: Config = {}
+  applyNativeSwarmsConfig(config)
+  expect(config.agent?.["native-swarms-workflow-step"]?.tools).toEqual({ workflow_command: true })
 })
 
 test("inherits models from OpenCode configuration", () => {
