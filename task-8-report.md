@@ -15,6 +15,11 @@ Verification:
 - `bun test src/workflow/tools.test.ts` — 3 passed
 - `bun run typecheck` — passed
 
+Final hardening connected the runtime guard to the plugin hook, initialized
+fresh state parent directories, forwarded bound policy hashes through
+`workflow_command`, and made broker tokens metadata-bound and single-use.
+The final gate passed with 19 focused tests and typecheck.
+
 Review follow-up connected `NativeSwarmsPlugin` to native session and state
 adapters, enforced structured run-scoped commands, added caller-abort approval
 handling and richer approval summaries, validated run IDs for `/workflow`, and

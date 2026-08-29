@@ -27,17 +27,18 @@ export type ApprovalBroker = Readonly<{
   permissionAsk(input: any, output: { status: "ask" | "deny" | "allow" }): void
   event(input: any): void
   pending(): number
-  consume(token: string): boolean
+  consume(token: string, workflowHash?: string, policyHash?: string): boolean
 }>
 
 /** Correlates host permission callbacks without trusting their ordering. */
 export function createApprovalBroker(options: Readonly<{ timeoutMs?: number }> = {}): ApprovalBroker {
   const pending = new Map<string, { resolve: (decision: PolicyDecision) => void; permissionID?: string }>()
   const consumed = new Set<string>()
+  const issued = new Map<string, { workflowHash: string; policyHash: string; sessionID: string; expiresAt: number }>()
   const request = (summary: ApprovalSummary, sessionID: string, context: ToolContext) => new Promise<Readonly<{ decision: PolicyDecision; token?: string }>>(async (resolve) => {
     const requestID = randomUUID()
     const timer = setTimeout(() => { pending.delete(requestID); resolve({ decision: { allowed: false, layer: "approval", reason: "Approval reply timed out" } }) }, options.timeoutMs ?? 60_000)
-    pending.set(requestID, { resolve: (decision) => { clearTimeout(timer); pending.delete(requestID); resolve({ decision, token: decision.allowed ? `${requestID}.${hash({ requestID, summary, sessionID })}` : undefined }) } })
+    pending.set(requestID, { resolve: (decision) => { clearTimeout(timer); pending.delete(requestID); const token = decision.allowed ? `${requestID}.${hash({ requestID, summary, sessionID })}` : undefined; if (token) issued.set(token, { workflowHash: summary.workflowHash, policyHash: summary.policyHash, sessionID, expiresAt: Date.now() + 60_000 }); resolve({ decision, token }) } })
     const onAbort = () => { if (pending.has(requestID)) pending.get(requestID)!.resolve({ allowed: false, layer: "approval", reason: "Approval request aborted" }) }
     if (context.abort.aborted) onAbort(); else context.abort.addEventListener("abort", onAbort, { once: true })
     try {
@@ -61,7 +62,7 @@ export function createApprovalBroker(options: Readonly<{ timeoutMs?: number }> =
     const status = event.status ?? event.properties?.status
     for (const item of pending.values()) if (item.permissionID === permissionID) item.resolve({ allowed: status === "allow", layer: "approval", reason: status === "allow" ? "Workflow launch approved" : "Workflow launch denied" })
   }
-  const consume = (token: string) => { if (consumed.has(token)) return false; if (!token.includes(".")) return false; consumed.add(token); return true }
+  const consume = (token: string, workflowHash?: string, policyHash?: string) => { const item = issued.get(token); if (!item || consumed.has(token) || item.expiresAt < Date.now() || workflowHash && item.workflowHash !== workflowHash || policyHash && item.policyHash !== policyHash) return false; consumed.add(token); return true }
   return { request, permissionAsk, event, pending: () => pending.size, consume }
 }
 
@@ -84,7 +85,7 @@ export function createWorkflowTools(options: ToolOptions): Record<string, ToolDe
     if (!checked.success) throw new Error("workflow_command requires a structured command")
     const binding = options.runtime.binding?.(context.sessionID)
     if (!binding || binding.runId !== args.runID || binding.stepId !== args.stepID || args.sessionID !== context.sessionID) throw new Error("workflow_command scope mismatch")
-    if (options.commandBinding) return json(await options.commandBinding({ ...args, command: checked.data }, context))
+    if (options.commandBinding) return json(await options.commandBinding({ ...args, command: checked.data, policyHash: binding.policyHash }, context))
     if (!options.command) throw new Error("workflow_command executor unavailable")
     return json(await options.command({ ...args, command: checked.data }, context))
   } })

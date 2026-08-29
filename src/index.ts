@@ -34,9 +34,10 @@ export const NativeSwarmsPlugin: Plugin = async (input) => {
     async abort(id: string) { await client.session.abort({ path: { id } }) },
     async messages(id: string) { const r = await client.session.messages({ path: { id } }); return r.data ?? r },
   }
-  const filesystem: any = { realpath: (p: string) => fs.realpath(p), atomicWrite: async (p: string, d: string) => fs.writeFile(p, d), read: (p: string) => fs.readFile(p, "utf8"), isSymlink: async () => false, acquireLock: async () => ({ release: async () => {} }) }
+  const filesystem: any = { realpath: (p: string) => fs.realpath(p), atomicWrite: async (p: string, d: string) => { await fs.mkdir((await import("node:path")).dirname(p), { recursive: true }); await fs.writeFile(p, d) }, read: (p: string) => fs.readFile(p, "utf8"), isSymlink: async () => false, acquireLock: async (p: string) => { await fs.mkdir((await import("node:path")).dirname(p), { recursive: true }); return { release: async () => {} } } }
   const state = createRepositoryStateStore({ filesystem, environment: { get: (name) => process.env[name], homeDirectory: () => process.env.HOME ?? "" }, repository: { commonDirectory: input.worktree, metadata: { project: (input.project as any)?.id ?? input.directory } } })
-  const runtime = createWorkflowRuntime({ state, sessions, repositoryRoot: input.worktree, repositoryId: (input.project as any)?.id ?? input.directory, agent: { name: "native-swarms-workflow-step", definition: reservedWorkflowAgent }, registerToolHook: () => {}, consumeApproval: (token) => broker.consume(token) })
+  let runtimeGuard: ((input: { sessionID: string; tool: string }) => void) | undefined
+  const runtime = createWorkflowRuntime({ state, sessions, repositoryRoot: input.worktree, repositoryId: (input.project as any)?.id ?? input.directory, agent: { name: "native-swarms-workflow-step", definition: reservedWorkflowAgent }, registerToolHook: (hook) => { runtimeGuard = hook }, consumeApproval: (token, workflowHash, policyHash) => broker.consume(token, workflowHash, policyHash) })
   const workflowTools = createWorkflowTools({ runtime, broker })
   return {
     tool: {
@@ -50,6 +51,7 @@ export const NativeSwarmsPlugin: Plugin = async (input) => {
   },
   "permission.ask": async (input, output) => { broker.permissionAsk(input, output) },
   event: async (input) => { broker.event(input) },
+  "tool.execute.before": async (input) => { runtimeGuard?.(input) },
   "command.execute.before": async (input, output) => {
     if (input.command !== "workflow") return
     const parsed = validateWorkflowCommand(input.arguments)

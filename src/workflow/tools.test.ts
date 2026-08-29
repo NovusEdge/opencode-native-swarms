@@ -52,3 +52,13 @@ test("workflow_command validates structured command input before execution", asy
   const tools = createWorkflowTools({ runtime, command: async () => "executed" })
   await expect(tools.workflow_command.execute({ sessionID: "child", runID: "r", stepID: "s", command: "bun run check" }, context({ sessionID: "child" }))).rejects.toThrow()
 })
+
+test("workflow_command invokes the bound command executor with token and exact scope", async () => {
+  let received: any
+  const runtime = { binding: () => ({ runId: "r", stepId: "s", sessionID: "child", policyHash: "p" }) } as any
+  const tools = createWorkflowTools({ runtime, commandBinding: async (input) => { received = input; return { allowed: true } } })
+  await tools.workflow_command.execute({ sessionID: "child", runID: "r", stepID: "s", approvalToken: "token", command: { executable: "bun", argv: ["run", "check"], cwd: ".", env: [] } }, context({ sessionID: "child" }))
+  expect(received.approvalToken).toBe("token")
+  expect(received.command.executable).toBe("bun")
+  expect(received.policyHash).toBe("p")
+})
